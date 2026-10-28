@@ -75,24 +75,24 @@ export function sanitizeSpeechText(
   if (typeof input !== 'string') {
     throw new ElevenLabsBrowserTtsError(
       'INVALID_TEXT',
-      'The phrase must be text.',
+      '短语必须是文本。',
     );
   }
   if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(input)) {
     throw new ElevenLabsBrowserTtsError(
       'INVALID_TEXT',
-      'The phrase contains unsupported control characters.',
+      '短语包含不支持的控制字符。',
     );
   }
 
   const text = input.normalize('NFKC').replace(/\s+/gu, ' ').trim();
   if (!text) {
-    throw new ElevenLabsBrowserTtsError('INVALID_TEXT', 'Enter a phrase to speak.');
+    throw new ElevenLabsBrowserTtsError('INVALID_TEXT', '请输入要朗读的短语。');
   }
   if (Array.from(text).length > maxCharacters) {
     throw new ElevenLabsBrowserTtsError(
       'INVALID_TEXT',
-      `The phrase cannot exceed ${maxCharacters} characters.`,
+      `短语不能超过 ${maxCharacters} 个字符。`,
     );
   }
   return text;
@@ -132,18 +132,18 @@ function responseError(status: number): ElevenLabsBrowserTtsError {
   if (status === 401 || status === 403) {
     return new ElevenLabsBrowserTtsError(
       'AUTHENTICATION',
-      'ElevenLabs rejected this API key. Check its permissions and quota.',
+      'ElevenLabs 拒绝了此 API 密钥,请检查其权限与额度。',
     );
   }
   if (status === 429) {
     return new ElevenLabsBrowserTtsError(
       'RATE_LIMITED',
-      'ElevenLabs is rate limiting this key. Wait a moment and retry.',
+      'ElevenLabs 正在对此密钥限流,请稍等片刻后重试。',
     );
   }
   return new ElevenLabsBrowserTtsError(
     'REQUEST_FAILED',
-    `ElevenLabs could not generate speech (${status}).`,
+    `ElevenLabs 无法生成语音(${status})。`,
   );
 }
 
@@ -192,13 +192,13 @@ export class ElevenLabsBrowserTtsClient implements TimestampedSpeechClient {
     if (!apiKey) {
       throw new ElevenLabsBrowserTtsError(
         'MISSING_API_KEY',
-        'Add your ElevenLabs API key to enable direct phrase speech.',
+        '请添加你的 ElevenLabs API 密钥,以启用直接短语语音。',
       );
     }
     if (/\s|[\u0000-\u001F\u007F]/u.test(apiKey)) {
       throw new ElevenLabsBrowserTtsError(
         'AUTHENTICATION',
-        'The saved ElevenLabs API key is not valid.',
+        '已保存的 ElevenLabs API 密钥无效。',
       );
     }
     const cacheKey =
@@ -228,7 +228,7 @@ export class ElevenLabsBrowserTtsClient implements TimestampedSpeechClient {
     signal?: AbortSignal,
   ): Promise<SpeechSynthesisPayload> {
     if (signal?.aborted) {
-      throw new ElevenLabsBrowserTtsError('CANCELLED', 'Speech generation was cancelled.');
+      throw new ElevenLabsBrowserTtsError('CANCELLED', '语音生成已取消。');
     }
     const endpoint =
       `${ELEVENLABS_TIMESTAMPED_TTS_URL}/${encodeURIComponent(this.voiceId)}` +
@@ -263,15 +263,15 @@ export class ElevenLabsBrowserTtsClient implements TimestampedSpeechClient {
       if (timedOut) {
         throw new ElevenLabsBrowserTtsError(
           'REQUEST_FAILED',
-          'ElevenLabs speech generation timed out. Retry in a moment.',
+          'ElevenLabs 语音生成超时,请稍后重试。',
         );
       }
       if (abortError(error)) {
-        throw new ElevenLabsBrowserTtsError('CANCELLED', 'Speech generation was cancelled.');
+        throw new ElevenLabsBrowserTtsError('CANCELLED', '语音生成已取消。');
       }
       throw new ElevenLabsBrowserTtsError(
         'REQUEST_FAILED',
-        'This browser could not reach ElevenLabs directly.',
+        '此浏览器无法直接连接 ElevenLabs。',
       );
     } finally {
       globalThis.clearTimeout(timeout);
@@ -286,7 +286,7 @@ export class ElevenLabsBrowserTtsClient implements TimestampedSpeechClient {
     } catch {
       throw new ElevenLabsBrowserTtsError(
         'INVALID_RESPONSE',
-        'ElevenLabs returned unreadable timing data.',
+        'ElevenLabs 返回的时序数据无法读取。',
       );
     }
 
@@ -302,7 +302,7 @@ export class ElevenLabsBrowserTtsClient implements TimestampedSpeechClient {
     ) {
       throw new ElevenLabsBrowserTtsError(
         'INVALID_RESPONSE',
-        'ElevenLabs returned incomplete speech timing data.',
+        'ElevenLabs 返回的语音时序数据不完整。',
       );
     }
 
@@ -334,7 +334,7 @@ export class ElevenLabsBrowserTtsClient implements TimestampedSpeechClient {
       if (error instanceof ElevenLabsBrowserTtsError) throw error;
       throw new ElevenLabsBrowserTtsError(
         'INVALID_RESPONSE',
-        'Speech timing could not be converted into mouth movement.',
+        '语音时序无法转换为口部动作。',
       );
     }
   }

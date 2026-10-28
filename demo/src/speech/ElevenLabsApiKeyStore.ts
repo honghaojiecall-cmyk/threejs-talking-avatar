@@ -14,10 +14,10 @@ function browserStorage(): KeyStorage | null {
 export function normalizeElevenLabsApiKey(value: string): string {
   const key = value.trim();
   if (!key) {
-    throw new TypeError('Enter an ElevenLabs API key.');
+    throw new TypeError('请输入 ElevenLabs API 密钥。');
   }
   if (key.length > 512 || /\s|[\u0000-\u001F\u007F]/u.test(key)) {
-    throw new TypeError('The API key contains unsupported characters.');
+    throw new TypeError('API 密钥包含不支持的字符。');
   }
   return key;
 }
@@ -42,12 +42,12 @@ export function storeElevenLabsApiKey(
 ): string {
   const key = normalizeElevenLabsApiKey(value);
   if (!storage) {
-    throw new Error('Local browser storage is unavailable.');
+    throw new Error('浏览器本地存储不可用。');
   }
   try {
     storage.setItem(ELEVENLABS_API_KEY_STORAGE_KEY, key);
   } catch {
-    throw new Error('The API key could not be saved in this browser.');
+    throw new Error('无法在此浏览器中保存 API 密钥。');
   }
   return key;
 }
@@ -65,6 +65,6 @@ export function clearStoredElevenLabsApiKey(
 
 export function maskElevenLabsApiKey(value: string): string {
   const key = value.trim();
-  if (!key) return 'No key saved';
-  return 'stored locally';
+  if (!key) return '未保存密钥';
+  return '已保存到本地';
 }

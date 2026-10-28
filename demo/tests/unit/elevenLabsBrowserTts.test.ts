@@ -147,7 +147,7 @@ test('times out a stalled browser request with a sanitized error', async () => {
   await assert.rejects(client.synthesize('Hello'), (error: unknown) => {
     assert.ok(error instanceof ElevenLabsBrowserTtsError);
     assert.equal(error.code, 'REQUEST_FAILED');
-    assert.match(error.message, /timed out/u);
+    assert.match(error.message, /超时/u);
     assert.doesNotMatch(error.message, /provider-secret-details/u);
     return true;
   });

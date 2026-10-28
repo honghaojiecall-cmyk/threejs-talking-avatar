@@ -6,11 +6,13 @@ import {
   type BrainLoadProgress,
   type LocalBrainRuntime,
 } from './BrainContracts';
+import { KimiApiRuntime } from './KimiApiRuntime';
 import { LiteRtLlmRuntime } from './LiteRtLlmRuntime';
 import { WebLlmRuntime } from './WebLlmRuntime';
 
 function createRuntime(modelId: LanguageModelId): LocalBrainRuntime {
   const runtime = getLocalModel(modelId).backends[0]?.runtime;
+  if (runtime === 'openai-api') return new KimiApiRuntime();
   if (runtime === 'webllm') return new WebLlmRuntime();
   if (runtime === 'litert-lm') return new LiteRtLlmRuntime();
   throw new Error('The selected local brain does not have an enabled browser runtime.');

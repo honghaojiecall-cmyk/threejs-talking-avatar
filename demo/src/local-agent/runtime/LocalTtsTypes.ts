@@ -4,7 +4,8 @@ export type LocalTtsEngine =
   | 'kokoro'
   | 'kokoro-timestamped'
   | 'supertonic-2'
-  | 'kitten-tts-nano';
+  | 'kitten-tts-nano'
+  | 'piper-zh';
 
 export type LocalTtsBackend = 'wasm' | 'webgpu';
 

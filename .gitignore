@@ -4,6 +4,8 @@
 !.env.example
 demo/node_modules/
 demo/dist/
+demo/vendor-assets/
+demo/public/local-models/
 demo/test-results/
 demo/playwright-report/
 demo/artifacts/

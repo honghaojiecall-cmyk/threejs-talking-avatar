@@ -28,11 +28,12 @@ import {
   type SpeechToTextModelId,
   type TextToSpeechModelId,
 } from '../local-agent';
-import { GnmHead, type PortraitLoadProgress } from './GnmHead';
+import type { PortraitLoadProgress } from './MintAvatar';
+import { IpAvatar } from './IpAvatar';
 
 const MAX_TEXT_LENGTH = 1000;
 const DEFAULT_TTS_MODEL_ID: TextToSpeechModelId =
-  'kokoro-82m-timestamped-fp32-webgpu';
+  'piper-zh-huayan-medium-wasm';
 
 const PERFORMANCE_PREVIEW_INTENTS: Readonly<Record<string, PerformanceIntent>> = {
   neutral: {
@@ -157,24 +158,24 @@ function formatModelSize(bytes: number): string {
 
 function strongestArticulation(weights: Readonly<SpeechRigWeights>): ArticulationSummary {
   const gestures: ArticulationSummary[] = [
-    { label: 'bilabial closure · /m b p/', value: Math.max(weights.lipsTogether, weights.contactBilabial) },
-    { label: 'lower lip → teeth · /f v/', value: Math.max(weights.lowerLipToTeeth, weights.contactLabiodental) },
-    { label: 'tongue between teeth · /θ ð/', value: Math.max(weights.tongueBetweenTeeth, weights.contactDental) },
-    { label: 'tongue tip → alveolar ridge · /t d n/', value: Math.max(weights.tongueTipUp, weights.contactAlveolar) },
-    { label: 'lateral tongue contact · /l/', value: Math.max(weights.tongueTipLateral, weights.contactLateral) },
-    { label: 'tongue dorsum raised · /k g ŋ/', value: Math.max(weights.tongueDorsumUp, weights.contactVelar) },
-    { label: 'sibilant tongue groove', value: Math.max(weights.tongueBladeGroove, weights.correctiveSibilantGroove) },
-    { label: 'rounded lips', value: Math.max(weights.lipPucker, weights.lipFunnel) },
-    { label: 'open vowel', value: Math.max(weights.mouthAA, weights.mouthE, weights.mouthO) },
-    { label: 'front vowel / spread lips', value: Math.max(weights.mouthI, weights.lipStretch) },
-    { label: 'jaw opening', value: weights.jawOpen },
+    { label: '双唇闭合 · /m b p/', value: Math.max(weights.lipsTogether, weights.contactBilabial) },
+    { label: '下唇 → 牙齿 · /f v/', value: Math.max(weights.lowerLipToTeeth, weights.contactLabiodental) },
+    { label: '舌在齿间 · /θ ð/', value: Math.max(weights.tongueBetweenTeeth, weights.contactDental) },
+    { label: '舌尖 → 齿龈嵴 · /t d n/', value: Math.max(weights.tongueTipUp, weights.contactAlveolar) },
+    { label: '舌侧接触 · /l/', value: Math.max(weights.tongueTipLateral, weights.contactLateral) },
+    { label: '舌背抬起 · /k g ŋ/', value: Math.max(weights.tongueDorsumUp, weights.contactVelar) },
+    { label: '咝音舌槽', value: Math.max(weights.tongueBladeGroove, weights.correctiveSibilantGroove) },
+    { label: '圆唇', value: Math.max(weights.lipPucker, weights.lipFunnel) },
+    { label: '开元音', value: Math.max(weights.mouthAA, weights.mouthE, weights.mouthO) },
+    { label: '前元音 / 展唇', value: Math.max(weights.mouthI, weights.lipStretch) },
+    { label: '下颌张开', value: weights.jawOpen },
   ];
   gestures.sort((a, b) => b.value - a.value);
-  return gestures[0].value < 0.045 ? { label: 'articulatory rest', value: 0 } : gestures[0];
+  return gestures[0].value < 0.045 ? { label: '发音器官静止', value: 0 } : gestures[0];
 }
 
 export class PortraitApp {
-  private readonly portrait: GnmHead;
+  private readonly portrait: IpAvatar;
   private readonly speech: SpeechController;
   private readonly phraseInput = requireElement<HTMLTextAreaElement>('#phrase-input');
   private readonly count = requireElement<HTMLElement>('#character-count');
@@ -310,6 +311,7 @@ export class PortraitApp {
   private firstClauseAt: number | undefined;
   private firstAudioAt: number | undefined;
   private runtimeActionInFlight = false;
+  private greetingAbort: AbortController | null = null;
   private disposed = false;
   private readonly onExpressionReviewKey = (event: KeyboardEvent): void => {
     if (!import.meta.env.DEV || !event.altKey || !event.shiftKey) return;
@@ -344,7 +346,7 @@ export class PortraitApp {
   };
 
   constructor(canvas: HTMLCanvasElement) {
-    this.portrait = new GnmHead(canvas, (progress) => this.onLoadProgress(progress));
+    this.portrait = new IpAvatar(canvas, (progress) => this.onLoadProgress(progress));
     this.speech = new SpeechController();
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.speech.setReducedMotion(reducedMotion);
@@ -371,7 +373,7 @@ export class PortraitApp {
       () => {
         this.applyQueryVerificationState();
         document.body.dataset.model = 'ready';
-        this.loadingLabel.textContent = 'Native GNM rig ready';
+        this.loadingLabel.textContent = '原生 GNM 绑定已就绪';
         this.loadingBar.style.setProperty('--progress', '1');
         window.setTimeout(() => this.loading.classList.add('is-hidden'), 180);
         window.setTimeout(() => {
@@ -380,8 +382,8 @@ export class PortraitApp {
       },
       (error: unknown) => {
         document.body.dataset.model = 'error';
-        this.loadingLabel.textContent = 'The GNM head could not be loaded.';
-        this.status.textContent = error instanceof Error ? error.message : 'Model load failed.';
+        this.loadingLabel.textContent = 'GNM 头像加载失败。';
+        this.status.textContent = error instanceof Error ? error.message : '模型加载失败。';
         this.status.dataset.state = 'error';
       },
     );
@@ -467,7 +469,7 @@ export class PortraitApp {
       const mode = this.selectedLipSyncMode();
       this.localAgent?.setLipSyncMode(mode);
       this.renderSelectedModelDetails();
-      this.setRuntimeActionStatus('ready', `Lip-sync policy changed to ${this.timingModeLabel(mode)}.`);
+      this.setRuntimeActionStatus('ready', `唇形同步策略已切换为${this.timingModeLabel(mode)}。`);
     });
     this.warmRuntimeButton.addEventListener('click', () => void this.warmLocalRuntime(false));
     this.reloadRuntimeButton.addEventListener('click', () => void this.warmLocalRuntime(true));
@@ -517,8 +519,8 @@ export class PortraitApp {
         },
         onEchoSuppressed: () => {
           const stateAtNotice = this.localAgentState;
-          this.agentState.textContent = 'echo rejected · still listening';
-          this.micDetail.textContent = 'Head audio rejected · microphone remains live.';
+          this.agentState.textContent = '回声已抑制 · 仍在聆听';
+          this.micDetail.textContent = '头像音频被拒绝 · 麦克风保持开启。';
           window.setTimeout(() => {
             if (this.localAgentState === stateAtNotice) {
               this.renderLocalAgentState(stateAtNotice);
@@ -543,56 +545,56 @@ export class PortraitApp {
     this.readyLocalModels.clear();
     this.completedLocalRequests = 0;
     this.localAgent = this.createLocalAgent();
-    this.renderLocalAgentState('idle', 'ready to load');
+    this.renderLocalAgentState('idle', '待加载');
     await this.probeLocalCapabilities();
   }
 
   private async switchSelectedRuntime(): Promise<void> {
     await this.runRuntimeAction(
-      'Unloading the previous brain and voice…',
+      '正在卸载之前的大脑和声音…',
       async () => {
         await this.replaceLocalAgent();
       },
-      'Selection staged. Warm it now, or press Talk when ready.',
+      '选择已就绪。现在预热,或准备好后按开始。',
       'idle',
     );
   }
 
   private async warmLocalRuntime(reload: boolean): Promise<void> {
     await this.runRuntimeAction(
-      reload ? 'Releasing memory, then warming the selected stack…' : 'Warming the selected local stack…',
+      reload ? '正在释放显存,然后预热所选套件…' : '正在预热所选本地套件…',
       async () => {
         if (reload) await this.replaceLocalAgent();
         const localAgent = this.localAgent;
-        if (!localAgent) throw new Error('The local runtime is unavailable.');
-        this.setLaneRuntimeStatus(this.sttRuntimeStatus, 'WARMING', 'loading');
-        this.setLaneRuntimeStatus(this.brainRuntimeStatus, 'WARMING', 'loading');
-        this.setLaneRuntimeStatus(this.ttsRuntimeStatus, 'WARMING', 'loading');
-        this.renderLocalAgentState('installing', 'warming local models…');
+        if (!localAgent) throw new Error('本地运行时不可用。');
+        this.setLaneRuntimeStatus(this.sttRuntimeStatus, '预热中', 'loading');
+        this.setLaneRuntimeStatus(this.brainRuntimeStatus, '预热中', 'loading');
+        this.setLaneRuntimeStatus(this.ttsRuntimeStatus, '预热中', 'loading');
+        this.renderLocalAgentState('installing', '正在预热本地模型…');
         await localAgent.agent.initialize();
         if (localAgent.agent.snapshot().state === 'unsupported') {
-          throw new Error('The selected local stack is not supported by this browser.');
+          throw new Error('此浏览器不支持所选的本地套件。');
         }
         this.localModelsReady = true;
-        this.setLaneRuntimeStatus(this.sttRuntimeStatus, 'READY', 'ready');
-        this.setLaneRuntimeStatus(this.brainRuntimeStatus, 'READY', 'ready');
-        this.setLaneRuntimeStatus(this.ttsRuntimeStatus, 'READY', 'ready');
-        this.renderLocalAgentState('idle', 'local models ready');
+        this.setLaneRuntimeStatus(this.sttRuntimeStatus, '就绪', 'ready');
+        this.setLaneRuntimeStatus(this.brainRuntimeStatus, '就绪', 'ready');
+        this.setLaneRuntimeStatus(this.ttsRuntimeStatus, '就绪', 'ready');
+        this.renderLocalAgentState('idle', '本地模型已就绪');
       },
-      'Brain, voice, and recognizer are warm in local memory.',
+      '大脑、声音和识别器已在本地内存中预热。',
       'ready',
     );
   }
 
   private async unloadLocalRuntime(): Promise<void> {
     await this.runRuntimeAction(
-      'Stopping the voice loop and releasing local model memory…',
+      '正在停止语音环路并释放本地模型内存…',
       async () => {
         this.speech.cancel();
         await this.replaceLocalAgent();
         this.renderSelectedModels();
       },
-      'Models unloaded. Cached files remain on this device.',
+      '模型已卸载。缓存文件仍保留在本设备上。',
       'idle',
     );
   }
@@ -612,10 +614,10 @@ export class PortraitApp {
       await action();
       this.setRuntimeActionStatus(successState, successMessage);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Local runtime action failed.';
-      this.setLaneRuntimeStatus(this.sttRuntimeStatus, 'ERROR', 'error');
-      this.setLaneRuntimeStatus(this.brainRuntimeStatus, 'ERROR', 'error');
-      this.setLaneRuntimeStatus(this.ttsRuntimeStatus, 'ERROR', 'error');
+      const message = error instanceof Error ? error.message : '本地运行时操作失败。';
+      this.setLaneRuntimeStatus(this.sttRuntimeStatus, '错误', 'error');
+      this.setLaneRuntimeStatus(this.brainRuntimeStatus, '错误', 'error');
+      this.setLaneRuntimeStatus(this.ttsRuntimeStatus, '错误', 'error');
       this.setRuntimeActionStatus('error', message);
       this.renderLocalAgentState('error', message);
     } finally {
@@ -659,7 +661,7 @@ export class PortraitApp {
     } catch (error) {
       this.renderLocalAgentState(
         'unsupported',
-        error instanceof Error ? error.message : 'browser capability check failed',
+        error instanceof Error ? error.message : '浏览器能力检测失败',
       );
     }
   }
@@ -675,13 +677,14 @@ export class PortraitApp {
     this.setModelSelectorsDisabled(true);
     this.talkButton.disabled = true;
     this.renderLocalAgentState('installing', this.localModelsReady
-      ? 'opening microphone…'
-      : 'preparing local models…');
+      ? '正在打开麦克风…'
+      : '正在准备本地模型…');
     try {
       await localAgent.agent.startListening();
       this.localModelsReady = true;
       this.micSessionActive = true;
       this.renderLocalAgentState('listening');
+      this.playGreeting(localAgent);
     } catch (error) {
       this.micSessionActive = false;
       this.micVoiceActive = false;
@@ -689,12 +692,40 @@ export class PortraitApp {
       this.talkButton.disabled = false;
       this.renderLocalAgentState(
         'error',
-        error instanceof Error ? error.message : 'local voice setup failed',
+        error instanceof Error ? error.message : '本地语音设置失败',
       );
     }
   }
 
+  private playGreeting(localAgent: BrowserLocalAgent): void {
+    this.greetingAbort?.abort();
+    const abort = new AbortController();
+    this.greetingAbort = abort;
+    const greeting =
+      '你好呀!我是你的本地语音头像,所有模型都在这台设备上运行。准备好啦,直接开口跟我说话吧!';
+    this.agentReply.textContent = greeting;
+    void (async () => {
+      try {
+        if (!abort.signal.aborted) this.renderLocalAgentState('speaking');
+        await localAgent.speakPhrase(greeting, abort.signal);
+      } catch {
+        // The greeting is best-effort; the conversation loop stays live.
+      } finally {
+        if (this.greetingAbort === abort) this.greetingAbort = null;
+        if (
+          !abort.signal.aborted &&
+          this.micSessionActive &&
+          this.localAgentState === 'speaking'
+        ) {
+          this.renderLocalAgentState('listening');
+        }
+      }
+    })();
+  }
+
   private async stopLocalConversation(): Promise<void> {
+    this.greetingAbort?.abort();
+    this.greetingAbort = null;
     this.micSessionActive = false;
     this.micVoiceActive = false;
     this.micRms = 0;
@@ -703,8 +734,8 @@ export class PortraitApp {
     this.speech.cancel();
     this.setModelSelectorsDisabled(false);
     this.renderLocalAgentState('idle', this.localModelsReady
-      ? 'local models ready'
-      : 'ready to load');
+      ? '本地模型已就绪'
+      : '待加载');
   }
 
   private async pauseLocalAgentForDirectSpeech(): Promise<void> {
@@ -737,15 +768,17 @@ export class PortraitApp {
         this.agentReplyDraft = '';
         this.agentThinkingPanel.hidden = false;
         this.agentThinkingPanel.open = true;
-        this.agentThinking.textContent = 'Thinking locally…';
-        this.userTranscript.textContent = 'Transcribing locally…';
-        this.agentReply.textContent = 'Thinking on this device…';
+        this.agentThinking.textContent = '正在本地思考…';
+        this.userTranscript.textContent = '正在本地转写…';
+        this.agentReply.textContent = '正在本设备上思考…';
         break;
       case 'transcript':
         this.micVoiceActive = false;
         this.userTranscript.textContent = event.text;
         break;
       case 'speech-start':
+        this.greetingAbort?.abort();
+        this.greetingAbort = null;
         this.micVoiceActive = true;
         this.renderLocalAgentState('listening');
         break;
@@ -767,7 +800,7 @@ export class PortraitApp {
         this.agentReply.textContent = event.text || this.agentReplyDraft;
         break;
       case 'barge-in':
-        this.agentState.textContent = 'interrupted · capturing you';
+        this.agentState.textContent = '已打断 · 正在听你说话';
         break;
       case 'error':
         this.renderLocalAgentState('error', event.error.message);
@@ -798,7 +831,7 @@ export class PortraitApp {
           this.latencyLlm,
           duration,
         );
-        this.renderRuntimeLatency(this.brainRuntimeLatency, 'FIRST TOKEN', duration);
+        this.renderRuntimeLatency(this.brainRuntimeLatency, '首个 TOKEN', duration);
       } else if (metric.stage === 'audio-start' && this.firstAudioAt === undefined) {
         this.firstAudioAt = metric.at;
         const duration = metric.at - (this.turnStartedAt ?? metric.at);
@@ -806,7 +839,7 @@ export class PortraitApp {
           this.latencyAudio,
           duration,
         );
-        this.renderRuntimeLatency(this.timingRuntimeLatency, 'AUDIO START', duration);
+        this.renderRuntimeLatency(this.timingRuntimeLatency, '出声', duration);
         this.renderVoiceMonitor();
       }
       return;
@@ -822,12 +855,12 @@ export class PortraitApp {
     if (metric.durationMs !== undefined) {
       document.body.dataset.localPhaseMs = metric.durationMs.toFixed(1);
       if (metric.phase === 'stt') {
-        this.renderRuntimeLatency(this.sttRuntimeLatency, 'TRANSCRIBE', metric.durationMs);
+        this.renderRuntimeLatency(this.sttRuntimeLatency, '识别', metric.durationMs);
       } else if (metric.phase === 'tts') {
         if (this.lastTtsSynthesisMs === undefined) {
           this.lastTtsSynthesisMs = metric.durationMs;
           this.renderLatency(this.latencyTts, metric.durationMs);
-          this.renderRuntimeLatency(this.ttsRuntimeLatency, 'SYNTH', metric.durationMs);
+          this.renderRuntimeLatency(this.ttsRuntimeLatency, '合成', metric.durationMs);
         }
         document.body.dataset.ttsSynthesisMs = metric.durationMs.toFixed(1);
       }
@@ -836,15 +869,15 @@ export class PortraitApp {
 
   private renderLocalAgentState(state: LocalAgentState, detail?: string): void {
     const labels: Record<LocalAgentState, string> = {
-      unsupported: 'VOICE MODE UNAVAILABLE',
-      installing: 'SETTING UP',
-      idle: this.localModelsReady ? 'MIC PAUSED' : 'READY TO LOAD',
-      listening: this.micVoiceActive ? 'HEARING YOU' : 'LISTENING',
-      transcribing: 'TRANSCRIBING',
-      thinking: 'FORMING REPLY',
-      speaking: 'RESPONDING',
-      interrupted: 'LISTENING AGAIN',
-      error: 'VOICE ERROR',
+      unsupported: '语音模式不可用',
+      installing: '正在设置',
+      idle: this.localModelsReady ? '麦克风已暂停' : '待加载',
+      listening: this.micVoiceActive ? '正在听你说话' : '聆听中',
+      transcribing: '转写中',
+      thinking: '正在组织回复',
+      speaking: '回复中',
+      interrupted: '重新聆听',
+      error: '语音出错',
     };
     this.localAgentState = state;
     this.speech.setConversationState(state);
@@ -858,27 +891,27 @@ export class PortraitApp {
       active || state === 'installing' || state === 'unsupported' || this.runtimeActionInFlight,
     );
     const stopLabel = this.conversationStopButton.querySelector('span');
-    if (stopLabel) stopLabel.textContent = active ? 'Stop session' : 'Mic stopped';
+    if (stopLabel) stopLabel.textContent = active ? '停止会话' : '麦克风已停止';
     this.conversationStopButton.setAttribute(
       'aria-label',
-      active ? 'Stop microphone and current response' : 'Microphone is stopped',
+      active ? '停止麦克风和当前回复' : '麦克风已停止',
     );
     const label = this.talkButton.querySelector('span');
     if (label) {
       const activeLabels: Partial<Record<LocalAgentState, string>> = {
-        listening: this.micVoiceActive ? 'Hearing you now' : 'Listening now',
-        transcribing: 'Transcribing locally…',
-        thinking: 'Preparing response…',
-        speaking: 'Responding now…',
-        interrupted: 'Listening now',
+        listening: this.micVoiceActive ? '正在听你说话' : '聆听中',
+        transcribing: '正在本地转写…',
+        thinking: '正在准备回复…',
+        speaking: '正在回复…',
+        interrupted: '聆听中',
       };
       label.textContent = state === 'unsupported'
-        ? 'WebGPU required for local conversation'
+        ? '本地对话需要 WebGPU'
         : state === 'installing'
-          ? 'Preparing local models…'
+          ? '正在准备本地模型…'
           : activeLabels[state] ?? (this.localModelsReady
-            ? 'Start listening'
-            : `Load ${this.selectedDownloadLabel()} + start demo`);
+            ? '开始聆听'
+            : `加载 ${this.selectedDownloadLabel()} 并开始演示`);
     }
     this.renderVoiceMonitor();
   }
@@ -912,49 +945,49 @@ export class PortraitApp {
 
     const copy: Record<LocalAgentState, { status: string; detail: string }> = {
       unsupported: {
-        status: 'MICROPHONE UNAVAILABLE',
-        detail: 'This browser cannot run the complete local voice loop.',
+        status: '麦克风不可用',
+        detail: '此浏览器无法运行完整的本地语音环路。',
       },
       installing: {
-        status: this.localModelsReady ? 'OPENING MICROPHONE' : 'GETTING READY',
+        status: this.localModelsReady ? '正在打开麦克风' : '正在准备',
         detail: this.localModelsReady
-          ? 'Awaiting browser permission · input is not live yet.'
-          : 'Models are loading locally. The microphone is not open yet.',
+          ? '等待浏览器授权 · 输入尚未开启。'
+          : '模型正在本地加载,麦克风尚未打开。',
       },
       idle: {
-        status: 'MICROPHONE PAUSED',
-        detail: 'Input is off. Start listening when you’re ready.',
+        status: '麦克风已暂停',
+        detail: '输入已关闭。准备好后即可开始聆听。',
       },
       listening: this.micVoiceActive
         ? {
-            status: 'VOICE DETECTED',
-            detail: `${getLocalModel(this.sttSelect.value as SpeechToTextModelId).displayName} is capturing your voice locally.`,
+            status: '检测到语音',
+            detail: `${getLocalModel(this.sttSelect.value as SpeechToTextModelId).displayName} 正在本地采集你的声音。`,
           }
         : {
-            status: 'MICROPHONE LISTENING',
-            detail: `${getLocalModel(this.sttSelect.value as SpeechToTextModelId).displayName} is listening locally. Speak whenever you’re ready.`,
+            status: '麦克风聆听中',
+            detail: `${getLocalModel(this.sttSelect.value as SpeechToTextModelId).displayName} 正在本地聆听,随时开口即可。`,
           },
       transcribing: {
-        status: 'UTTERANCE CAPTURED',
-        detail: 'Decoding your speech locally · microphone remains live.',
+        status: '语音已捕获',
+        detail: '正在本地解码你的语音 · 麦克风保持开启。',
       },
       thinking: {
-        status: 'RESPONSE IN PROGRESS',
-        detail: `${getLocalModel(this.brainSelect.value as LanguageModelId).displayName} is thinking · microphone remains live.`,
+        status: '正在生成回复',
+        detail: `${getLocalModel(this.brainSelect.value as LanguageModelId).displayName} 正在思考 · 麦克风保持开启。`,
       },
       speaking: {
-        status: 'HEAD RESPONDING',
+        status: '头像回复中',
         detail: `${this.lastTtsSynthesisMs === undefined
-          ? `${getLocalModel(this.ttsSelect.value as TextToSpeechModelId).displayName} is preparing`
-          : `Voice ready in ${(this.lastTtsSynthesisMs / 1_000).toFixed(1)} s`} · speak to interrupt.`,
+          ? `${getLocalModel(this.ttsSelect.value as TextToSpeechModelId).displayName} 正在准备`
+          : `声音在 ${(this.lastTtsSynthesisMs / 1_000).toFixed(1)} 秒内就绪`} · 开口即可打断。`,
       },
       interrupted: {
-        status: 'INTERRUPTION HEARD',
-        detail: 'The previous response stopped. Keep speaking.',
+        status: '已听到打断',
+        detail: '上一段回复已停止,请继续说。',
       },
       error: {
-        status: 'MICROPHONE ERROR',
-        detail: 'The voice session stopped. Check the message above and retry.',
+        status: '麦克风出错',
+        detail: '语音会话已停止。请查看上方信息后重试。',
       },
     };
     this.micStatus.textContent = copy[state].status;
@@ -980,22 +1013,22 @@ export class PortraitApp {
       this.sttSelect.value as SpeechToTextModelId,
     ).displayName;
     this.hearStageDetail.textContent = state === 'listening'
-      ? this.micVoiceActive ? 'capturing' : 'waiting'
+      ? this.micVoiceActive ? '采集中' : '等待中'
       : state === 'transcribing'
-        ? 'decoding'
+        ? '解码中'
         : ['thinking', 'speaking'].includes(state)
-          ? 'captured'
+          ? '已捕获'
           : state === 'interrupted'
-            ? 'reopened'
-            : 'mic off';
+            ? '已重新打开'
+            : '麦克风关闭';
     this.thinkStageDetail.textContent = state === 'thinking'
-      ? 'generating'
+      ? '生成中'
       : state === 'speaking'
-        ? 'complete'
-        : 'waiting';
+        ? '已完成'
+        : '等待中';
     this.speakStageDetail.textContent = state === 'speaking'
-      ? this.firstAudioAt === undefined ? 'synthesizing' : 'audio + face'
-      : 'waiting';
+      ? this.firstAudioAt === undefined ? '合成中' : '音频 + 面部'
+      : '等待中';
   }
 
   private updateMicMonitor(delta: number): void {
@@ -1036,19 +1069,19 @@ export class PortraitApp {
     );
     this.webgpuDiagnostic.textContent = capabilities.webgpu.adapterAvailable
       ? capabilities.webgpu.shaderF16
-        ? 'ready · shader-f16'
-        : 'ready · fp32 only'
-      : 'not available';
+        ? '就绪 · shader-f16'
+        : '就绪 · 仅 fp32'
+      : '不可用';
     this.cacheDiagnostic.textContent = capabilities.storage.cacheStorage
       ? capabilities.storage.persisted
-        ? 'persistent'
-        : 'Cache API ready'
+        ? '持久化'
+        : 'Cache API 就绪'
       : capabilities.storage.opfs
-        ? 'OPFS ready'
-        : 'unavailable';
+        ? 'OPFS 就绪'
+        : '不可用';
     this.runtimeSummary.textContent = selectedPathReady
-      ? 'selected local path ready'
-      : 'selected path unavailable';
+      ? '所选本地路径已就绪'
+      : '所选路径不可用';
     if (!selectedPathReady) this.renderLocalAgentState('unsupported');
     else if (this.agentState.dataset.state === 'idle') this.renderLocalAgentState('idle');
   }
@@ -1061,9 +1094,9 @@ export class PortraitApp {
     const fraction = progress.fraction ?? 0;
     const laneState = fraction >= 1 ? 'ready' : 'loading';
     const laneLabel = fraction >= 1
-      ? 'READY'
+      ? '就绪'
       : progress.fraction === null
-        ? 'WARMING'
+        ? '预热中'
         : `${Math.round(fraction * 100)}%`;
     if (progress.modelId === this.sttSelect.value) {
       this.setLaneRuntimeStatus(this.sttRuntimeStatus, laneLabel, laneState);
@@ -1081,9 +1114,9 @@ export class PortraitApp {
     const state = row.querySelector<HTMLElement>('em');
     if (state) {
       state.textContent = fraction >= 1
-        ? 'ready · local'
+        ? '就绪 · 本地'
         : progress.fraction === null
-          ? 'preparing…'
+          ? '准备中…'
           : `${Math.round(fraction * 100)}%`;
       state.title = progress.message;
     }
@@ -1091,9 +1124,9 @@ export class PortraitApp {
 
   private renderSelectedModels(): void {
     const selections = [
-      { kind: 'LISTEN', id: this.sttSelect.value as SpeechToTextModelId },
-      { kind: 'THINK', id: this.brainSelect.value as LanguageModelId },
-      { kind: 'SPEAK', id: this.ttsSelect.value as TextToSpeechModelId },
+      { kind: '聆听', id: this.sttSelect.value as SpeechToTextModelId },
+      { kind: '思考', id: this.brainSelect.value as LanguageModelId },
+      { kind: '说话', id: this.ttsSelect.value as TextToSpeechModelId },
     ] as const;
     const rows = Array.from(document.querySelectorAll<HTMLElement>('.model-progress'));
     for (const [index, selection] of selections.entries()) {
@@ -1115,16 +1148,16 @@ export class PortraitApp {
     }
     this.readyLocalModels.clear();
     this.localModelsReady = false;
-    this.setLaneRuntimeStatus(this.sttRuntimeStatus, 'COLD', 'cold');
-    this.setLaneRuntimeStatus(this.brainRuntimeStatus, 'COLD', 'cold');
-    this.setLaneRuntimeStatus(this.ttsRuntimeStatus, 'COLD', 'cold');
-    this.renderRuntimeLatency(this.brainRuntimeLatency, 'FIRST TOKEN');
-    this.renderRuntimeLatency(this.ttsRuntimeLatency, 'SYNTH');
-    this.renderRuntimeLatency(this.timingRuntimeLatency, 'AUDIO START');
-    this.renderRuntimeLatency(this.sttRuntimeLatency, 'TRANSCRIBE');
+    this.setLaneRuntimeStatus(this.sttRuntimeStatus, '未加载', 'cold');
+    this.setLaneRuntimeStatus(this.brainRuntimeStatus, '未加载', 'cold');
+    this.setLaneRuntimeStatus(this.ttsRuntimeStatus, '未加载', 'cold');
+    this.renderRuntimeLatency(this.brainRuntimeLatency, '首个 TOKEN');
+    this.renderRuntimeLatency(this.ttsRuntimeLatency, '合成');
+    this.renderRuntimeLatency(this.timingRuntimeLatency, '出声');
+    this.renderRuntimeLatency(this.sttRuntimeLatency, '识别');
     this.renderSelectedModelDetails();
     if (!this.runtimeActionInFlight) {
-      this.setRuntimeActionStatus('idle', 'Models load only when you ask.');
+      this.setRuntimeActionStatus('idle', '模型仅在你要求时加载。');
     }
     this.renderLocalAgentState('idle');
   }
@@ -1135,35 +1168,40 @@ export class PortraitApp {
     const tts = getLocalModel(this.ttsSelect.value as TextToSpeechModelId);
     if (tts.kind !== 'tts') throw new Error('Selected voice descriptor is not a TTS model.');
     const memoryNotes: Readonly<Record<string, string>> = {
-      'moonshine-tiny-q8': 'CPU/WASM · low-latency English',
-      'whisper-tiny-en-q8': 'CPU/WASM · broad compatibility',
-      'qwen2.5-0.5b-instruct-q4f16': 'WebLLM ~0.95 GB GPU',
-      'qwen3.5-0.8b-q4f16': 'WebLLM ~1.63 GB GPU',
-      'qwen3.5-2b-q4f16': 'WebLLM ~2.25 GB GPU',
-      'qwen3.5-4b-q4f16': 'WebLLM ~3.87 GB GPU',
-      'gemma-4-e2b-it-litert-web': 'device-dependent WebGPU working memory',
-      'gemma-4-e4b-it-litert-web': 'high device-dependent WebGPU memory',
-      'gemma-3-1b-it-q4f16': 'adapter pending',
-      'supertonic-2-instant-webgpu': 'WebGPU · WASM fallback · 2 steps',
-      'supertonic-2-quality-webgpu': 'WebGPU · WASM fallback · 5 steps',
-      'kitten-tts-nano-0.8-fp32-webgpu': 'WebGPU · WASM fallback · 15M parameters',
-      'kokoro-82m-timestamped-q8-wasm': 'CPU/WASM · synthesis-native timestamps',
-      'kokoro-82m-timestamped-fp32-webgpu': 'WebGPU · synthesis-native timestamps',
-      'kokoro-82m-q8-wasm': 'CPU/WASM · phoneme-native',
-      'kokoro-82m-fp32-webgpu': 'WebGPU · phoneme-native',
+      'kimi-k3-256k-api': '云端 API · 不占本地 GPU 显存',
+      'qwen3-asr-0.6b-api': '服务端 API · 不占本地资源',
+      'whisper-small-multilingual-q8': 'CPU/WASM · 中文及多语言识别',
+      'whisper-tiny-multilingual-q8': 'CPU/WASM · 中文及多语言识别',
+      'piper-zh-huayan-medium-wasm': 'CPU/WASM · 中文普通话语音',
+      'moonshine-tiny-q8': 'CPU/WASM · 低延迟英文',
+      'whisper-tiny-en-q8': 'CPU/WASM · 广泛兼容',
+      'qwen2.5-0.5b-instruct-q4f16': 'WebLLM 约 0.95 GB 显存',
+      'qwen3.5-0.8b-q4f16': 'WebLLM 约 1.63 GB 显存',
+      'qwen3.5-2b-q4f16': 'WebLLM 约 2.25 GB 显存',
+      'qwen3.5-4b-q4f16': 'WebLLM 约 3.87 GB 显存',
+      'gemma-4-e2b-it-litert-web': 'WebGPU 工作显存因设备而异',
+      'gemma-4-e4b-it-litert-web': 'WebGPU 显存占用高,因设备而异',
+      'gemma-3-1b-it-q4f16': '适配器待接入',
+      'supertonic-2-instant-webgpu': 'WebGPU · WASM 回退 · 2 步',
+      'supertonic-2-quality-webgpu': 'WebGPU · WASM 回退 · 5 步',
+      'kitten-tts-nano-0.8-fp32-webgpu': 'WebGPU · WASM 回退 · 15M 参数',
+      'kokoro-82m-timestamped-q8-wasm': 'CPU/WASM · 合成原生时间戳',
+      'kokoro-82m-timestamped-fp32-webgpu': 'WebGPU · 合成原生时间戳',
+      'kokoro-82m-q8-wasm': 'CPU/WASM · 音素原生',
+      'kokoro-82m-fp32-webgpu': 'WebGPU · 音素原生',
     };
     this.sttModelDetailName.textContent = stt.displayName;
     this.sttModelDetail.textContent = stt.description;
     this.sttModelFootprint.textContent =
-      `${formatModelSize(stt.artifact.estimatedDownloadBytes)} download · ${memoryNotes[stt.id] ?? 'local speech recognition'}`;
+      `下载 ${formatModelSize(stt.artifact.estimatedDownloadBytes)} · ${memoryNotes[stt.id] ?? '本地语音识别'}`;
     this.brainModelDetailName.textContent = brain.displayName;
     this.brainModelDetail.textContent = brain.description;
     this.brainModelFootprint.textContent =
-      `${formatModelSize(brain.artifact.estimatedDownloadBytes)} download · ${memoryNotes[brain.id] ?? 'device benchmark required'}`;
+      `下载 ${formatModelSize(brain.artifact.estimatedDownloadBytes)} · ${memoryNotes[brain.id] ?? '需在本设备实测'}`;
     this.ttsModelDetailName.textContent = tts.displayName;
     this.ttsModelDetail.textContent = tts.description;
     this.ttsModelFootprint.textContent =
-      `${formatModelSize(tts.artifact.estimatedDownloadBytes)} download · ${memoryNotes[tts.id] ?? 'device benchmark required'}`;
+      `下载 ${formatModelSize(tts.artifact.estimatedDownloadBytes)} · ${memoryNotes[tts.id] ?? '需在本设备实测'}`;
 
     const mode = this.selectedLipSyncMode();
     const timingCopy: Readonly<Record<LocalLipSyncMode, {
@@ -1173,34 +1211,34 @@ export class PortraitApp {
       badge: string;
     }>> = {
       auto: {
-        name: 'Automatic arbitration',
-        detail: 'Prefers synthesis-native timestamps, then applies the best safe local fallback.',
-        footprint: 'No extra model · recommended for mixed voice engines',
-        badge: 'AUTO',
+        name: '自动仲裁',
+        detail: '优先使用合成原生时间戳,再应用最安全的本地回退。',
+        footprint: '无需额外模型 · 推荐混合语音引擎使用',
+        badge: '自动',
       },
       native: {
-        name: 'Native phone windows',
-        detail: 'Preserves synthesis-native phone boundaries without acoustic retiming.',
-        footprint: 'Best with a timestamped Kokoro engine',
-        badge: 'NATIVE',
+        name: '原生音素窗口',
+        detail: '保留合成原生音素边界,不做声学重定时。',
+        footprint: '最适合搭配带时间戳的 Kokoro 引擎',
+        badge: '原生',
       },
       waveform: {
-        name: 'Waveform refinement',
-        detail: 'Refines IPA windows with local energy, voicing, and transient cues.',
-        footprint: 'Deterministic browser DSP · no model download',
-        badge: 'WAVEFORM',
+        name: '波形精修',
+        detail: '用本地能量、浊音与瞬态线索精修 IPA 窗口。',
+        footprint: '确定性浏览器 DSP · 无需下载模型',
+        badge: '波形',
       },
       heuristic: {
-        name: 'Phoneme duration',
-        detail: 'Uses deterministic G2P duration windows without acoustic boundary nudging.',
-        footprint: 'Portable fallback for every local voice',
-        badge: 'HEURISTIC',
+        name: '音素时长',
+        detail: '使用确定性 G2P 时长窗口,不做声学边界微调。',
+        footprint: '适用于所有本地声音的通用回退',
+        badge: '启发式',
       },
     };
     const timing = timingCopy[mode];
     this.timingModeDetailName.textContent = timing.name;
     this.timingModeDetail.textContent = mode === 'native' && !tts.producesNativeVisemeTiming
-      ? `${tts.displayName} has no native timestamps; its supplied phoneme estimate is preserved.`
+      ? `${tts.displayName} 没有原生时间戳,将保留其提供的音素估计。`
       : timing.detail;
     this.timingModeFootprint.textContent = timing.footprint;
     this.setLaneRuntimeStatus(this.timingRuntimeStatus, timing.badge, 'active');
@@ -1208,10 +1246,10 @@ export class PortraitApp {
 
   private timingModeLabel(mode: LocalLipSyncMode): string {
     const labels: Readonly<Record<LocalLipSyncMode, string>> = {
-      auto: 'Auto',
-      native: 'Native timing',
-      waveform: 'Waveform refinement',
-      heuristic: 'Phoneme duration',
+      auto: '自动',
+      native: '原生时序',
+      waveform: '波形精修',
+      heuristic: '音素时长',
     };
     return labels[mode];
   }
@@ -1232,10 +1270,10 @@ export class PortraitApp {
       element.dataset.ready = 'false';
       element.removeAttribute('title');
     }
-    this.renderRuntimeLatency(this.brainRuntimeLatency, 'FIRST TOKEN');
-    this.renderRuntimeLatency(this.ttsRuntimeLatency, 'SYNTH');
-    this.renderRuntimeLatency(this.timingRuntimeLatency, 'AUDIO START');
-    this.renderRuntimeLatency(this.sttRuntimeLatency, 'TRANSCRIBE');
+    this.renderRuntimeLatency(this.brainRuntimeLatency, '首个 TOKEN');
+    this.renderRuntimeLatency(this.ttsRuntimeLatency, '合成');
+    this.renderRuntimeLatency(this.timingRuntimeLatency, '出声');
+    this.renderRuntimeLatency(this.sttRuntimeLatency, '识别');
   }
 
   private renderLatency(element: HTMLElement, durationMs: number): void {
@@ -1244,7 +1282,7 @@ export class PortraitApp {
       ? `${Math.round(durationMs)} ms`
       : `${(durationMs / 1_000).toFixed(2)} s`;
     element.dataset.ready = 'true';
-    element.title = `${durationMs.toFixed(1)} milliseconds`;
+    element.title = `${durationMs.toFixed(1)} 毫秒`;
   }
 
   private renderRuntimeLatency(
@@ -1259,11 +1297,11 @@ export class PortraitApp {
       return;
     }
     const value = durationMs < 1_000
-      ? `${Math.round(durationMs)} MS`
-      : `${(durationMs / 1_000).toFixed(2)} S`;
+      ? `${Math.round(durationMs)} 毫秒`
+      : `${(durationMs / 1_000).toFixed(2)} 秒`;
     element.textContent = `${label} ${value}`;
     element.dataset.ready = 'true';
-    element.title = `${durationMs.toFixed(1)} milliseconds`;
+    element.title = `${durationMs.toFixed(1)} 毫秒`;
   }
 
   private selectedDownloadLabel(): string {
@@ -1329,16 +1367,16 @@ export class PortraitApp {
 
   private async speakPhrase(): Promise<void> {
     if (!getStoredElevenLabsApiKey()) {
-      this.status.textContent = 'Add your ElevenLabs API key to generate a custom phrase.';
+      this.status.textContent = '请先添加你的 ElevenLabs API 密钥,再生成自定义短语。';
       this.status.dataset.state = 'error';
-      this.apiKeyStatus.textContent = 'API key required';
+      this.apiKeyStatus.textContent = '需要 API 密钥';
       this.apiKeyInput.focus();
       return;
     }
     await this.pauseLocalAgentForDirectSpeech();
     const text = this.phraseInput.value.trim();
     if (!text) {
-      this.status.textContent = 'Enter a phrase first.';
+      this.status.textContent = '请先输入一段短语。';
       this.status.dataset.state = 'error';
       this.phraseInput.focus();
       return;
@@ -1398,17 +1436,17 @@ export class PortraitApp {
     this.replayButton.disabled = !snapshot.prepared || busy;
     this.source.textContent = snapshot.prepared
       ? snapshot.prepared.source === 'live-synthesis'
-        ? 'live synthetic speech'
+        ? '实时合成语音'
         : `${snapshot.prepared.voice.displayName} · PCM + IPA`
-      : 'no audio loaded';
+      : '未加载音频';
 
     const labels: Record<SpeechControllerSnapshot['state'], string> = {
-      idle: hasApiKey ? 'Ready to generate a phrase' : 'Add an API key to generate a phrase',
-      loading: 'Generating audio + timestamped articulation…',
-      ready: 'Speech prepared',
-      playing: 'Speaking · Web Audio clock locked',
-      ended: 'Playback complete',
-      error: snapshot.error?.message ?? 'Speech generation failed.',
+      idle: hasApiKey ? '可以生成短语了' : '添加 API 密钥后生成短语',
+      loading: '正在生成音频与带时间戳的发音动作…',
+      ready: '语音已就绪',
+      playing: '播放中 · 已锁定 Web Audio 时钟',
+      ended: '播放完成',
+      error: snapshot.error?.message ?? '语音生成失败。',
     };
     this.status.textContent = labels[snapshot.state];
     this.status.dataset.state = snapshot.state;
@@ -1423,14 +1461,14 @@ export class PortraitApp {
     this.phoneLabel.textContent = prepared.phonemes.some(
       (phone) => phone.source === 'waveform-refined',
     )
-      ? 'IPA / WAVEFORM-REFINED PHONE WINDOWS'
-      : 'IPA / PROVIDER-ESTIMATED PHONE WINDOWS';
+      ? 'IPA / 波形精修音素窗口'
+      : 'IPA / 提供方估计音素窗口';
     const visiblePhones = prepared.phonemes.filter((phone) => phone.normalizedPhone !== 'sil');
     for (const interval of visiblePhones.slice(0, 140)) {
       const chip = document.createElement('span');
       chip.className = 'phone-chip';
       chip.textContent = interval.normalizedPhone || interval.phone;
-      chip.title = `${interval.startTime.toFixed(3)}–${interval.endTime.toFixed(3)} s · ${interval.source}`;
+      chip.title = `${interval.startTime.toFixed(3)}–${interval.endTime.toFixed(3)} 秒 · ${interval.source}`;
       this.phoneTrack.append(chip);
     }
     if (visiblePhones.length > 140) {
@@ -1490,7 +1528,7 @@ export class PortraitApp {
   private saveElevenLabsApiKey(): void {
     const key = this.apiKeyInput.value.trim();
     if (!key) {
-      this.apiKeyStatus.textContent = 'Paste an API key first';
+      this.apiKeyStatus.textContent = '请先粘贴 API 密钥';
       this.apiKeyInput.setAttribute('aria-invalid', 'true');
       this.apiKeyInput.focus();
       return;
@@ -1499,14 +1537,14 @@ export class PortraitApp {
       storeElevenLabsApiKey(key);
       this.apiKeyInput.value = '';
       this.apiKeyInput.removeAttribute('aria-invalid');
-      this.renderApiKeyState('Saved in this browser');
-      this.status.textContent = 'API key saved. Ready to generate a phrase.';
+      this.renderApiKeyState('已保存在此浏览器中');
+      this.status.textContent = 'API 密钥已保存,可以生成短语了。';
       this.status.dataset.state = 'idle';
     } catch (error) {
       this.apiKeyInput.setAttribute('aria-invalid', 'true');
       this.apiKeyStatus.textContent = error instanceof Error
         ? error.message
-        : 'This browser could not store the API key.';
+        : '此浏览器无法保存该 API 密钥。';
     }
   }
 
@@ -1514,8 +1552,8 @@ export class PortraitApp {
     clearStoredElevenLabsApiKey();
     this.apiKeyInput.value = '';
     this.apiKeyInput.removeAttribute('aria-invalid');
-    this.renderApiKeyState('API key removed');
-    this.status.textContent = 'Add an API key to generate a phrase.';
+    this.renderApiKeyState('API 密钥已移除');
+    this.status.textContent = '添加 API 密钥后生成短语。';
     this.status.dataset.state = 'idle';
   }
 
@@ -1524,15 +1562,15 @@ export class PortraitApp {
     const configured = Boolean(key);
     this.apiKeyManager.dataset.configured = String(configured);
     this.apiKeyStatus.textContent = statusMessage
-      ?? (configured ? 'Ready for direct playback' : 'API key required');
+      ?? (configured ? '可以直接播放' : '需要 API 密钥');
     this.apiKeyMask.textContent = configured && key
       ? maskElevenLabsApiKey(key)
-      : 'not configured';
+      : '未配置';
     this.clearApiKeyButton.disabled = !configured;
     this.saveApiKeyButton.disabled = this.apiKeyInput.value.trim().length === 0;
     this.speakButton.disabled = this.speechSnapshot.state === 'loading' || !configured;
     const label = this.speakButton.querySelector('span');
-    if (label) label.textContent = configured ? 'Generate + speak' : 'Add API key to generate';
+    if (label) label.textContent = configured ? '生成并播放' : '添加 API 密钥后生成';
   }
 
   private updateCharacterCount(): void {
@@ -1545,7 +1583,7 @@ export class PortraitApp {
   private onLoadProgress(progress: PortraitLoadProgress): void {
     const ratio = progress.ratio ?? Math.min(0.92, progress.loaded / 1_200_000);
     this.loadingBar.style.setProperty('--progress', ratio.toFixed(3));
-    this.loadingLabel.textContent = `Loading native GNM anatomy · ${Math.round(ratio * 100)}%`;
+    this.loadingLabel.textContent = `正在加载原生 GNM 解剖结构 · ${Math.round(ratio * 100)}%`;
   }
 
   private publishDiagnostics(elapsed: number): void {
@@ -1589,7 +1627,7 @@ export class PortraitApp {
       loaded: this.portrait.isLoaded(),
       speechState: this.previewState ? 'preview' : this.speechSnapshot.state,
       previewState: this.previewState ?? null,
-      activeGesture: this.gesture.textContent ?? 'articulatory rest',
+      activeGesture: this.gesture.textContent ?? '发音器官静止',
       timing: {
         frameTimeMs,
         fps,

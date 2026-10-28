@@ -1,5 +1,6 @@
 import {
   LOCAL_KITTEN_VOICE,
+  LOCAL_PIPER_ZH_VOICE,
   LOCAL_SUPERTONIC_VOICE,
   type LocalLipSyncMode,
   type PreparedSpeech,
@@ -246,6 +247,30 @@ export class BrowserLocalAgent {
     return this.agent.submitTranscript(transcript);
   }
 
+  /**
+   * Speaks a fixed phrase through the installed local TTS outside the
+   * conversational turn pipeline (used for the automatic greeting).
+   */
+  async speakPhrase(text: string, signal?: AbortSignal): Promise<void> {
+    const controller = new AbortController();
+    const onAbort = (): void => controller.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      const synthesis = await this.tts.synthesize(text);
+      throwIfAborted(controller.signal);
+      await this.playSynthesis({
+        turnId: 0,
+        requestId: 0,
+        text,
+        synthesis,
+        signal: controller.signal,
+        onProgress: () => undefined,
+      });
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
+  }
+
   /** Updates only the articulation timing policy; loaded model workers stay resident. */
   setLipSyncMode(mode: LocalLipSyncMode): void {
     this.modelRequest.lipSyncMode = mode;
@@ -329,7 +354,9 @@ export class BrowserLocalAgent {
           ? LOCAL_SUPERTONIC_VOICE
           : request.synthesis.engine === 'kitten-tts-nano'
             ? LOCAL_KITTEN_VOICE
-            : undefined,
+            : request.synthesis.engine === 'piper-zh'
+              ? LOCAL_PIPER_ZH_VOICE
+              : undefined,
         {
           timingMode: this.modelRequest.lipSyncMode ?? 'auto',
           performanceIntent: request.performanceIntent,

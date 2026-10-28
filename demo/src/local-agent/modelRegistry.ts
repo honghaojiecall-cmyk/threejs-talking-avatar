@@ -1,12 +1,14 @@
 export type LocalModelKind = 'stt' | 'llm' | 'tts';
 
-export type LocalExecutionBackend = 'wasm' | 'webgpu';
+export type LocalExecutionBackend = 'wasm' | 'webgpu' | 'api';
 
 export type LocalModelRuntime =
   | 'onnx-runtime-web'
   | 'transformers-js'
   | 'litert-lm'
-  | 'webllm';
+  | 'webllm'
+  | 'openai-api'
+  | 'piper-wasm';
 
 export type LocalModelPrecision = 'q8' | 'q4' | 'q4f16' | 'fp32';
 
@@ -80,7 +82,7 @@ export interface LanguageModelDescriptor extends LocalModelDescriptorBase {
 export interface TextToSpeechModelDescriptor extends LocalModelDescriptorBase {
   kind: 'tts';
   id: TextToSpeechModelId;
-  voices: 'kokoro' | 'supertonic' | 'kitten';
+  voices: 'kokoro' | 'supertonic' | 'kitten' | 'piper';
   producesNativeVisemeTiming: boolean;
 }
 
@@ -90,11 +92,15 @@ export type LocalModelDescriptor =
   | TextToSpeechModelDescriptor;
 
 export const SPEECH_TO_TEXT_MODEL_IDS = [
+  'qwen3-asr-0.6b-api',
+  'whisper-small-multilingual-q8',
+  'whisper-tiny-multilingual-q8',
   'moonshine-tiny-q8',
   'whisper-tiny-en-q8',
 ] as const;
 
 export const LANGUAGE_MODEL_IDS = [
+  'kimi-k3-256k-api',
   'qwen2.5-0.5b-instruct-q4f16',
   'qwen3.5-0.8b-q4f16',
   'qwen3.5-2b-q4f16',
@@ -105,6 +111,7 @@ export const LANGUAGE_MODEL_IDS = [
 ] as const;
 
 export const TEXT_TO_SPEECH_MODEL_IDS = [
+  'piper-zh-huayan-medium-wasm',
   'kokoro-82m-q8-wasm',
   'kokoro-82m-fp32-webgpu',
   'kokoro-82m-timestamped-q8-wasm',
@@ -180,6 +187,22 @@ const WEBGPU_Q4F16_TRANSFORMERS = [
   },
 ] as const satisfies readonly LocalModelBackendProfile[];
 
+const OPENAI_COMPATIBLE_API = [
+  {
+    runtime: 'openai-api',
+    execution: 'api',
+    precision: 'fp32',
+    requiredCapabilities: [],
+  },
+] as const satisfies readonly LocalModelBackendProfile[];
+
+const MOONSHOT_API_LICENSE: LocalModelLicense = {
+  spdxId: null,
+  name: 'Moonshot Platform Terms of Service',
+  url: 'https://platform.moonshot.ai/',
+  requiresAcceptance: false,
+};
+
 const WEBGPU_Q4_LITERT_LM = [
   {
     runtime: 'litert-lm',
@@ -190,11 +213,77 @@ const WEBGPU_Q4_LITERT_LM = [
 ] as const satisfies readonly LocalModelBackendProfile[];
 
 export const SPEECH_TO_TEXT_MODELS = {
+  'qwen3-asr-0.6b-api': {
+    id: 'qwen3-asr-0.6b-api',
+    kind: 'stt',
+    displayName: 'Qwen3-ASR 0.6B(服务端)',
+    description: '服务端 vLLM 托管的 Qwen3-ASR 0.6B,中文识别质量最佳;浏览器只上传语音,无需下载模型。',
+    artifact: {
+      repository: 'Qwen/Qwen3-ASR-0.6B',
+      artifactId: 'qwen3-asr-0.6b-vllm',
+      estimatedDownloadBytes: 0,
+      downloadSizeConfidence: 'estimate',
+      revision: null,
+    },
+    backends: OPENAI_COMPATIBLE_API,
+    license: APACHE_2_LICENSE,
+    policy: {
+      releaseChannel: 'safe-default',
+      allowAutomaticDownload: true,
+      requiresExplicitConsent: false,
+    },
+    languageSupport: 'multilingual',
+    streaming: false,
+  },
+  'whisper-small-multilingual-q8': {
+    id: 'whisper-small-multilingual-q8',
+    kind: 'stt',
+    displayName: 'Whisper Small Multilingual q8',
+    description: '多语言识别(中文及其他 98 种语言),较 Tiny 明显提升中文准确率,代价是更大的下载与内存占用。',
+    artifact: {
+      repository: 'onnx-community/whisper-small',
+      artifactId: 'whisper-small-multilingual-q8-onnx',
+      estimatedDownloadBytes: 249 * MB,
+      downloadSizeConfidence: 'artifact-listing',
+      revision: null,
+    },
+    backends: WASM_Q8_ONNX,
+    license: APACHE_2_LICENSE,
+    policy: {
+      releaseChannel: 'safe-default',
+      allowAutomaticDownload: true,
+      requiresExplicitConsent: false,
+    },
+    languageSupport: 'multilingual',
+    streaming: false,
+  },
+  'whisper-tiny-multilingual-q8': {
+    id: 'whisper-tiny-multilingual-q8',
+    kind: 'stt',
+    displayName: 'Whisper Tiny Multilingual q8',
+    description: '多语言识别(中文及其他 98 种语言),用于中文对话路径。',
+    artifact: {
+      repository: 'onnx-community/whisper-tiny',
+      artifactId: 'whisper-tiny-multilingual-q8-onnx',
+      estimatedDownloadBytes: 42 * MB,
+      downloadSizeConfidence: 'artifact-listing',
+      revision: null,
+    },
+    backends: WASM_Q8_ONNX,
+    license: APACHE_2_LICENSE,
+    policy: {
+      releaseChannel: 'safe-default',
+      allowAutomaticDownload: true,
+      requiresExplicitConsent: false,
+    },
+    languageSupport: 'multilingual',
+    streaming: false,
+  },
   'moonshine-tiny-q8': {
     id: 'moonshine-tiny-q8',
     kind: 'stt',
     displayName: 'Moonshine Tiny q8',
-    description: 'Low-latency English speech recognition for the safe local path.',
+    description: '低延迟英文语音识别,适用于安全的本地路径。',
     artifact: {
       repository: 'onnx-community/moonshine-tiny-ONNX',
       artifactId: 'moonshine-tiny-q8-onnx',
@@ -216,7 +305,7 @@ export const SPEECH_TO_TEXT_MODELS = {
     id: 'whisper-tiny-en-q8',
     kind: 'stt',
     displayName: 'Whisper Tiny.en q8',
-    description: 'English recognition fallback with broader ecosystem support.',
+    description: '英文识别回退,生态支持更广。',
     artifact: {
       repository: 'onnx-community/whisper-tiny.en',
       artifactId: 'whisper-tiny-en-q8-onnx',
@@ -237,11 +326,34 @@ export const SPEECH_TO_TEXT_MODELS = {
 } as const satisfies Record<SpeechToTextModelId, SpeechToTextModelDescriptor>;
 
 export const LANGUAGE_MODELS = {
+  'kimi-k3-256k-api': {
+    id: 'kimi-k3-256k-api',
+    kind: 'llm',
+    displayName: 'Kimi K3 256K (Cloud API)',
+    description:
+      'Moonshot Kimi K3,通过 OpenAI 兼容接口提供。无需本地下载或 GPU 显存;需要能访问所配置的 API 主机。',
+    artifact: {
+      repository: 'moonshotai/kimi-k3',
+      artifactId: 'kimi-k3-256k',
+      estimatedDownloadBytes: 0,
+      downloadSizeConfidence: 'estimate',
+      revision: null,
+    },
+    backends: OPENAI_COMPATIBLE_API,
+    license: MOONSHOT_API_LICENSE,
+    policy: {
+      releaseChannel: 'safe-default',
+      allowAutomaticDownload: true,
+      requiresExplicitConsent: false,
+    },
+    contextWindowTokens: 262_144,
+    multimodal: false,
+  },
   'qwen2.5-0.5b-instruct-q4f16': {
     id: 'qwen2.5-0.5b-instruct-q4f16',
     kind: 'llm',
     displayName: 'Qwen2.5 0.5B Instruct',
-    description: 'Fast, compact WebLLM model selected for the safe local path.',
+    description: '快速、紧凑的 WebLLM 模型,适用于安全的本地路径。',
     artifact: {
       repository: 'mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
       artifactId: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
@@ -263,7 +375,7 @@ export const LANGUAGE_MODELS = {
     id: 'qwen3.5-0.8b-q4f16',
     kind: 'llm',
     displayName: 'Qwen3.5 0.8B',
-    description: 'Newer WebLLM quality option; never selected or downloaded implicitly.',
+    description: '更新的 WebLLM 质量选项;绝不会被隐式选中或下载。',
     artifact: {
       repository: 'mlc-ai/Qwen3.5-0.8B-q4f16_1-MLC',
       artifactId: 'Qwen3.5-0.8B-q4f16_1-MLC',
@@ -285,7 +397,7 @@ export const LANGUAGE_MODELS = {
     id: 'qwen3.5-2b-q4f16',
     kind: 'llm',
     displayName: 'Qwen3.5 2B',
-    description: 'Balanced WebLLM option with a substantial quality gain over sub-billion models.',
+    description: '均衡的 WebLLM 选项,相比十亿参数以下的模型有明显质量提升。',
     artifact: {
       repository: 'mlc-ai/Qwen3.5-2B-q4f16_1-MLC',
       artifactId: 'Qwen3.5-2B-q4f16_1-MLC',
@@ -307,7 +419,7 @@ export const LANGUAGE_MODELS = {
     id: 'qwen3.5-4b-q4f16',
     kind: 'llm',
     displayName: 'Qwen3.5 4B',
-    description: 'Higher-quality WebLLM option for devices with roughly 4 GB of free GPU memory.',
+    description: '更高质量的 WebLLM 选项,适合约有 4 GB 空闲显存的设备。',
     artifact: {
       repository: 'mlc-ai/Qwen3.5-4B-q4f16_1-MLC',
       artifactId: 'Qwen3.5-4B-q4f16_1-MLC',
@@ -322,7 +434,7 @@ export const LANGUAGE_MODELS = {
       allowAutomaticDownload: false,
       requiresExplicitConsent: false,
       warning:
-        'Requires approximately 3.9 GB of WebGPU memory and may compete with rendering and speech synthesis.',
+        '需要约 3.9 GB 的 WebGPU 显存,可能与渲染和语音合成争抢资源。',
     },
     contextWindowTokens: 262_144,
     multimodal: false,
@@ -331,7 +443,7 @@ export const LANGUAGE_MODELS = {
     id: 'gemma-4-e2b-it-litert-web',
     kind: 'llm',
     displayName: 'Gemma 4 E2B IT',
-    description: 'Recommended smart local model through Google LiteRT-LM WebGPU.',
+    description: '推荐的智能本地模型,基于 Google LiteRT-LM WebGPU 运行。',
     artifact: {
       repository: 'litert-community/gemma-4-E2B-it-litert-lm',
       artifactId: 'gemma-4-E2B-it-web.litertlm',
@@ -346,7 +458,7 @@ export const LANGUAGE_MODELS = {
       allowAutomaticDownload: false,
       requiresExplicitConsent: false,
       warning:
-        'Two-gigabyte first download. Keep other GPU-heavy models unloaded while it initializes.',
+        '首次下载约 2 GB。初始化期间请保持其他高显存模型处于卸载状态。',
     },
     contextWindowTokens: 131_072,
     multimodal: false,
@@ -355,7 +467,7 @@ export const LANGUAGE_MODELS = {
     id: 'gemma-4-e4b-it-litert-web',
     kind: 'llm',
     displayName: 'Gemma 4 E4B IT',
-    description: 'Highest-quality Gemma browser option, with materially higher memory and latency.',
+    description: '质量最高的 Gemma 浏览器选项,显存占用与延迟也明显更高。',
     artifact: {
       repository: 'litert-community/gemma-4-E4B-it-litert-lm',
       artifactId: 'gemma-4-E4B-it-web.litertlm',
@@ -370,7 +482,7 @@ export const LANGUAGE_MODELS = {
       allowAutomaticDownload: false,
       requiresExplicitConsent: false,
       warning:
-        'Three-gigabyte first download with high GPU-memory pressure; may disrupt rendering or lose the WebGPU device.',
+        '首次下载约 3 GB,GPU 显存压力较大;可能干扰渲染或导致 WebGPU 设备丢失。',
     },
     contextWindowTokens: 131_072,
     multimodal: false,
@@ -379,7 +491,7 @@ export const LANGUAGE_MODELS = {
     id: 'gemma-3-1b-it-q4f16',
     kind: 'llm',
     displayName: 'Gemma 3 1B IT',
-    description: 'Optional compact Gemma comparison model.',
+    description: '可选的紧凑型 Gemma 对比模型。',
     artifact: {
       repository: 'onnx-community/gemma-3-1b-it-ONNX',
       artifactId: 'gemma-3-1b-it-q4f16-onnx',
@@ -400,11 +512,40 @@ export const LANGUAGE_MODELS = {
 } as const satisfies Record<LanguageModelId, LanguageModelDescriptor>;
 
 export const TEXT_TO_SPEECH_MODELS = {
+  'piper-zh-huayan-medium-wasm': {
+    id: 'piper-zh-huayan-medium-wasm',
+    kind: 'tts',
+    displayName: 'Piper 中文 Huayan (WASM)',
+    description: '完全在浏览器中运行的中文普通话 VITS 语音;唇形时序由拼音发音与波形能量估计。',
+    artifact: {
+      repository: 'diffusionstudio/piper-voices',
+      artifactId: 'zh_CN-huayan-medium',
+      estimatedDownloadBytes: 63 * MB,
+      downloadSizeConfidence: 'estimate',
+      revision: null,
+    },
+    backends: [
+      {
+        runtime: 'piper-wasm',
+        execution: 'wasm',
+        precision: 'fp32',
+        requiredCapabilities: ['wasm'],
+      },
+    ],
+    license: MIT_LICENSE,
+    policy: {
+      releaseChannel: 'safe-default',
+      allowAutomaticDownload: true,
+      requiresExplicitConsent: false,
+    },
+    voices: 'piper',
+    producesNativeVisemeTiming: false,
+  },
   'kokoro-82m-q8-wasm': {
     id: 'kokoro-82m-q8-wasm',
     kind: 'tts',
     displayName: 'Kokoro 82M q8 (WASM)',
-    description: 'CPU/WASM voice synthesis that leaves the GPU available to the face and LLM.',
+    description: 'CPU/WASM 语音合成,把 GPU 留给面部和大模型。',
     artifact: {
       repository: 'onnx-community/Kokoro-82M-v1.0-ONNX',
       artifactId: 'kokoro-82m-q8-onnx',
@@ -426,7 +567,7 @@ export const TEXT_TO_SPEECH_MODELS = {
     id: 'kokoro-82m-fp32-webgpu',
     kind: 'tts',
     displayName: 'Kokoro 82M fp32 (WebGPU)',
-    description: 'Opt-in synthesis path for devices with spare GPU memory.',
+    description: '可选的合成路径,适合有空闲显存的设备。',
     artifact: {
       repository: 'onnx-community/Kokoro-82M-v1.0-ONNX',
       artifactId: 'kokoro-82m-fp32-onnx',
@@ -455,7 +596,7 @@ export const TEXT_TO_SPEECH_MODELS = {
     id: 'kokoro-82m-timestamped-q8-wasm',
     kind: 'tts',
     displayName: 'Kokoro Timestamped q8 (WASM)',
-    description: 'CPU synthesis with the per-token durations used to construct its own waveform.',
+    description: 'CPU 合成,带用于构建自身波形的逐 token 时长。',
     artifact: {
       repository: 'onnx-community/Kokoro-82M-v1.0-ONNX-timestamped',
       artifactId: 'kokoro-82m-timestamped-q8-onnx',
@@ -484,7 +625,7 @@ export const TEXT_TO_SPEECH_MODELS = {
     id: 'kokoro-82m-timestamped-fp32-webgpu',
     kind: 'tts',
     displayName: 'Kokoro Timestamped fp32',
-    description: 'Recommended lip-sync path: WebGPU Kokoro with synthesis-native phone durations.',
+    description: '推荐的唇形同步路径:WebGPU Kokoro,带合成原生音素时长。',
     artifact: {
       repository: 'onnx-community/Kokoro-82M-v1.0-ONNX-timestamped',
       artifactId: 'kokoro-82m-timestamped-fp32-onnx',
@@ -505,7 +646,7 @@ export const TEXT_TO_SPEECH_MODELS = {
       releaseChannel: 'optional',
       allowAutomaticDownload: false,
       requiresExplicitConsent: false,
-      warning: 'Uses WebGPU alongside the face and local brain; unload larger models if the adapter runs out of memory.',
+      warning: '与面部和本地大脑共用 WebGPU;若适配器显存不足,请卸载更大的模型。',
     },
     voices: 'kokoro',
     producesNativeVisemeTiming: true,
@@ -514,7 +655,7 @@ export const TEXT_TO_SPEECH_MODELS = {
     id: 'supertonic-2-instant-webgpu',
     kind: 'tts',
     displayName: 'Supertonic 2 Instant',
-    description: 'Two-step low-latency synthesis with WebGPU and automatic WASM fallback.',
+    description: '两步低延迟合成,支持 WebGPU 并自动回退 WASM。',
     artifact: {
       repository: 'Supertone/supertonic-2',
       artifactId: 'supertonic-2-onnx',
@@ -549,7 +690,7 @@ export const TEXT_TO_SPEECH_MODELS = {
     id: 'supertonic-2-quality-webgpu',
     kind: 'tts',
     displayName: 'Supertonic 2 Quality',
-    description: 'Five-step higher-quality synthesis with WebGPU and automatic WASM fallback.',
+    description: '五步高质量合成,支持 WebGPU 并自动回退 WASM。',
     artifact: {
       repository: 'Supertone/supertonic-2',
       artifactId: 'supertonic-2-onnx',
@@ -584,7 +725,7 @@ export const TEXT_TO_SPEECH_MODELS = {
     id: 'kitten-tts-nano-0.8-fp32-webgpu',
     kind: 'tts',
     displayName: 'KittenTTS Nano 0.8',
-    description: 'Tiny single-pass 15M-parameter voice for the fastest low-memory comparison path.',
+    description: '极小的单遍 15M 参数语音,用于最快的低显存对比路径。',
     artifact: {
       repository: 'KittenML/kitten-tts-nano-0.8-fp32',
       artifactId: 'kitten-tts-nano-v0.8-fp32-onnx',
@@ -611,7 +752,7 @@ export const TEXT_TO_SPEECH_MODELS = {
       releaseChannel: 'experimental',
       allowAutomaticDownload: false,
       requiresExplicitConsent: false,
-      warning: 'KittenTTS 0.8 is a developer preview; compare its pronunciation and voice quality before choosing it.',
+      warning: 'KittenTTS 0.8 为开发者预览版;选用前请先对比其发音与音质。',
     },
     voices: 'kitten',
     producesNativeVisemeTiming: false,
