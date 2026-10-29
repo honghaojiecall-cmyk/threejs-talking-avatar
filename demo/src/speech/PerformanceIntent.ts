@@ -50,6 +50,7 @@ export const PERFORMANCE_GESTURES = [
   'nod',
   'shake',
   'wave',
+  'jump',
   'glance_left',
   'glance_right',
   'reset',

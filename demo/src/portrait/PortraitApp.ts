@@ -133,6 +133,7 @@ const ACTION_MENU: ReadonlyArray<{ gesture: string; label: string; action: Perfo
   { gesture: 'nod', label: '点头', action: NOD_ACTION_PREVIEW },
   { gesture: 'shake', label: '摇头', action: SHAKE_ACTION_PREVIEW },
   { gesture: 'wave', label: '挥手', action: WAVE_ACTION_PREVIEW },
+  { gesture: 'jump', label: '跳跃', action: makeActionPreview('jump', { arousal: 0.8, valence: 0.5, holdSeconds: 1.2, releaseSeconds: 0.4 }) },
   { gesture: 'surprise', label: '惊讶', action: makeActionPreview('surprise', { arousal: 0.9, valence: 0.3, holdSeconds: 1.4 }) },
   { gesture: 'curiosity', label: '好奇', action: makeActionPreview('curiosity', { valence: 0.3, holdSeconds: 1.6 }) },
   { gesture: 'emphasis', label: '强调', action: makeActionPreview('emphasis', { arousal: 0.7, dominance: 0.6, holdSeconds: 0.8, releaseSeconds: 0.3 }) },

@@ -402,12 +402,13 @@ export class IpAvatar {
     const excited = gesture === 'smile' || surprise || gestureWave ? 1 : 0;
     const curious = gesture === 'curiosity' ? 1 : 0;
     const concern = gesture === 'concern' ? 1 : 0;
+    const jump = gesture === 'jump' ? 1 : 0;
     const wave = Math.max(clamp(pose.wave ?? 0), gestureWave);
     const still = this.reducedMotion ? 0 : 1;
 
-    const bobAmp = (0.012 * this.speechEnergy + 0.035 * excited) * still;
+    const bobAmp = (0.012 * this.speechEnergy + 0.05 * jump) * still;
     this.portraitRoot.position.y =
-      Math.abs(Math.sin(elapsed * (excited ? 6.5 : 5.2))) * bobAmp;
+      Math.abs(Math.sin(elapsed * (jump ? 6.5 : 5.2))) * bobAmp;
 
     const swing = Math.sin(elapsed * 5.2) * 0.12 * this.speechEnergy * still;
     const swingAlt = Math.sin(elapsed * 5.2 + Math.PI) * 0.12 * this.speechEnergy * still;
