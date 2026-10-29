@@ -17,6 +17,33 @@ const FACE_CANVAS_W = 1024;
 const FACE_CANVAS_H = 720;
 const FACE_CENTER = new THREE.Vector3(0.024, 0.06, 0.418);
 
+const EYE_MASK: readonly string[] = [
+  '...XX...',
+  'X.XXXX.X',
+  '.XXXXXX.',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  '.XXXXXX.',
+  '..XXXX..',
+  '...XX...',
+];
+
+const EYE_MASK_SMILE: readonly string[] = [
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'XX....XX',
+  'XX....XX',
+  'XX....XX',
+  'XX....XX',
+  'XX....XX',
+  'XX....XX',
+  'XX....XX',
+];
+
 const LIMB_BONES = {
   shoulderL: 'L_IK_Shoulder_jnt',
   shoulderR: 'R_IK_Shoulder_jnt',
@@ -407,11 +434,12 @@ export class IpAvatar {
     const gazeY = THREE.MathUtils.clamp(
       (pose.gazeY ?? 0) + (this.reducedMotion ? 0 : this.pointer.y * 0.25), -1, 1);
 
+    const gestureSmile = this.performanceFrame?.diagnostics.actionGesture === 'smile' ? 1 : 0;
     const target: FacePose = {
       open: clamp(jaw * (1 - bilabial)),
       wide: 0.85 + stretch * 0.45 - round * 0.3,
       round,
-      smile: clamp(0.2 + cornersUp - cornersDown * 0.8, 0),
+      smile: Math.max(clamp(0.2 + cornersUp - cornersDown * 0.8, 0), gestureSmile * 0.95),
       eyeOpen: THREE.MathUtils.clamp(1 - blink - squint * 0.5 + widen * 0.25, 0.04, 1.25),
       gazeX,
       gazeY,
@@ -636,19 +664,18 @@ export class IpAvatar {
     const gazeOffsetY = -pose.gazeY * H * 0.04;
     const eyeY = H * 0.38 + gazeOffsetY;
     const eyeDX = W * 0.2;
-    const eyeCols = 7;
-    const eyeRows = 11;
-    const eyeW = W * 0.185;
-    const eyeH = H * 0.24 * Math.max(0.04, pose.eyeOpen);
+    const eyeW = W * 0.225;
+    const eyeH = H * 0.22 * Math.max(0.04, pose.eyeOpen);
+    const eyeMask = pose.smile > 0.55 ? EYE_MASK_SMILE : EYE_MASK;
+    const eyeCols = eyeMask[0].length;
+    const eyeRows = eyeMask.length;
     const pitchX = eyeW / eyeCols;
     const pitchY = eyeH / eyeRows;
     for (const side of [-1, 1]) {
       const ex = cx + side * eyeDX + gazeOffsetX;
       for (let row = 0; row < eyeRows; row++) {
         for (let col = 0; col < eyeCols; col++) {
-          const nx = (col - (eyeCols - 1) / 2) / ((eyeCols - 1) / 2);
-          const ny = (row - (eyeRows - 1) / 2) / ((eyeRows - 1) / 2);
-          if (nx * nx + ny * ny > 1) continue;
+          if (eyeMask[row][col] !== 'X') continue;
           ctx.fillRect(
             ex + (col - (eyeCols - 1) / 2) * pitchX - pitchX * 0.4,
             eyeY + (row - (eyeRows - 1) / 2) * pitchY - pitchY * 0.4,

@@ -40,6 +40,33 @@ keyLight.position.set(2, 3, 4);
 scene.add(keyLight);
 
 const FACE_W = 1024;
+
+const EYE_MASK: readonly string[] = [
+  '...XX...',
+  'X.XXXX.X',
+  '.XXXXXX.',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'XXXXXXXX',
+  '.XXXXXX.',
+  '..XXXX..',
+  '...XX...',
+];
+
+const EYE_MASK_SMILE: readonly string[] = [
+  'XXXXXXXX',
+  'XXXXXXXX',
+  'XX....XX',
+  'XX....XX',
+  'XX....XX',
+  'XX....XX',
+  'XX....XX',
+  'XX....XX',
+  'XX....XX',
+];
 const FACE_H = 720;
 const faceCanvas = document.createElement('canvas');
 faceCanvas.width = FACE_W;
@@ -79,19 +106,18 @@ function drawFace(): void {
   const eyeY = FACE_H * 0.38;
   const eyeDX = FACE_W * 0.2;
   const cx = FACE_W / 2;
-  const eyeCols = 6;
-  const eyeRows = 11;
-  const eyeW = FACE_W * 0.16;
-  const eyeH = FACE_H * 0.24 * Math.max(0.06, eyeOpen);
+  const eyeW = FACE_W * 0.225;
+  const eyeH = FACE_H * 0.22 * Math.max(0.06, eyeOpen);
+  const eyeMask = currentPose.smile > 0.55 ? EYE_MASK_SMILE : EYE_MASK;
+  const eyeCols = eyeMask[0].length;
+  const eyeRows = eyeMask.length;
   const pitchX = eyeW / eyeCols;
   const pitchY = eyeH / eyeRows;
   for (const side of [-1, 1]) {
     const ex = cx + side * eyeDX;
     for (let row = 0; row < eyeRows; row++) {
       for (let col = 0; col < eyeCols; col++) {
-        const nx = (col - (eyeCols - 1) / 2) / ((eyeCols - 1) / 2);
-        const ny = (row - (eyeRows - 1) / 2) / ((eyeRows - 1) / 2);
-        if (nx * nx + ny * ny > 1) continue;
+        if (eyeMask[row][col] !== 'X') continue;
         ctx.fillRect(
           ex + (col - (eyeCols - 1) / 2) * pitchX - pitchX * 0.4,
           eyeY + (row - (eyeRows - 1) / 2) * pitchY - pitchY * 0.4,
