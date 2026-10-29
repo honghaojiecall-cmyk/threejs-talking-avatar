@@ -1312,6 +1312,75 @@ body[data-agent-state="listening"] .talk-glyph {
   background: rgba(217, 154, 105, 0.16);
 }
 
+.customize-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  padding: 2px 10px 10px;
+}
+
+.customize-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  color: #cbd2d9;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.customize-grid input[type="color"] {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--rule);
+  background: transparent;
+  cursor: pointer;
+}
+
+.customize-stickers {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 10px 12px;
+  color: #cbd2d9;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.customize-stickers label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.customize-stickers input[type="checkbox"] {
+  accent-color: var(--accent-strong);
+}
+
+.customize-stickers button {
+  margin-left: auto;
+  padding: 7px 12px;
+  border: 1px solid var(--rule);
+  background: rgba(255, 255, 255, 0.03);
+  color: #cbd2d9;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.customize-stickers button:hover {
+  border-color: var(--accent-strong);
+  color: #ffffff;
+}
+
 .api-key-manager {
   position: relative;
   margin: 0 9px 10px;

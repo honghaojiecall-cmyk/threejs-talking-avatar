@@ -64,8 +64,11 @@ function drawFace(): void {
   ctx.setTransform(0.6, 0, 0, 0.72, (0.62 - 0.5 * 0.6) * FACE_W, 0.28 * FACE_H);
 
   const glow = '#9fe8ff';
-  ctx.fillStyle = glow;
-  ctx.strokeStyle = glow;
+  const gradient = ctx.createLinearGradient(0, FACE_H * 0.15, 0, FACE_H * 0.85);
+  gradient.addColorStop(0, '#123a8f');
+  gradient.addColorStop(1, glow);
+  ctx.fillStyle = gradient;
+  ctx.strokeStyle = gradient;
   ctx.shadowColor = glow;
   ctx.shadowBlur = 18;
 

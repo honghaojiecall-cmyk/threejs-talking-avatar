@@ -29,7 +29,7 @@ import {
   type TextToSpeechModelId,
 } from '../local-agent';
 import type { PortraitLoadProgress } from './MintAvatar';
-import { IpAvatar } from './IpAvatar';
+import { IpAvatar, type CustomizePart, type FaceSticker } from './IpAvatar';
 
 const MAX_TEXT_LENGTH = 1000;
 const DEFAULT_TTS_MODEL_ID: TextToSpeechModelId =
@@ -408,6 +408,34 @@ export class PortraitApp {
       button.addEventListener('click', () => {
         const entry = ACTION_MENU.find((item) => item.gesture === button.dataset.actionGesture);
         if (entry) this.triggerActionPreview(entry.action);
+      });
+    });
+    document.querySelectorAll<HTMLInputElement>('[data-custom-part]').forEach((input) => {
+      input.addEventListener('input', () => {
+        this.portrait.setPartColor(input.dataset.customPart as CustomizePart, input.value);
+      });
+    });
+    document.querySelectorAll<HTMLInputElement>('[data-custom-glow]').forEach((input) => {
+      input.addEventListener('input', () => {
+        this.portrait.setFaceGlowColor(input.dataset.customGlow as 'top' | 'bottom', input.value);
+      });
+    });
+    document.querySelectorAll<HTMLInputElement>('[data-sticker]').forEach((input) => {
+      input.addEventListener('change', () => {
+        this.portrait.setSticker(input.dataset.sticker as FaceSticker, input.checked);
+      });
+    });
+    requireElement<HTMLButtonElement>('#customize-reset').addEventListener('click', () => {
+      this.portrait.resetCustomization();
+      document.querySelectorAll<HTMLInputElement>('[data-custom-part]').forEach((input) => {
+        input.value = '#ffffff';
+      });
+      const glowDefaults: Record<string, string> = { top: '#123a8f', bottom: '#9fe8ff' };
+      document.querySelectorAll<HTMLInputElement>('[data-custom-glow]').forEach((input) => {
+        input.value = glowDefaults[input.dataset.customGlow ?? 'top'];
+      });
+      document.querySelectorAll<HTMLInputElement>('[data-sticker]').forEach((input) => {
+        input.checked = false;
       });
     });
     this.installEvents();

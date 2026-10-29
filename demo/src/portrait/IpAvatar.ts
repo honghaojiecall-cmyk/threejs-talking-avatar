@@ -24,6 +24,9 @@ const LIMB_BONES = {
   elbowR: 'R_IK_Elbow_jnt',
 } as const;
 type LimbKey = keyof typeof LIMB_BONES;
+
+export type CustomizePart = 'head' | 'body' | 'legs' | 'arms' | 'antennae' | 'ears' | 'wings';
+export type FaceSticker = 'blush' | 'sparkle';
 interface LimbDriver {
   bone: THREE.Object3D;
   rest: THREE.Quaternion;
@@ -92,6 +95,11 @@ export class IpAvatar {
     gazeX: 0,
     gazeY: 0,
   };
+  private readonly partMeshes = new Map<CustomizePart, THREE.Mesh[]>();
+  private readonly baseColors = new Map<THREE.Material, THREE.Color>();
+  private faceGlowTop = '#123a8f';
+  private faceGlowBottom = '#9fe8ff';
+  private readonly stickers: Record<FaceSticker, boolean> = { blush: false, sparkle: false };
   private faceDirty = true;
 
   constructor(
@@ -188,6 +196,36 @@ export class IpAvatar {
       }
     });
     if (!this.headBone) throw new Error('The IP asset is missing its head bone.');
+
+    const partMeshNames: Record<CustomizePart, string[]> = {
+      head: ['空白1-Oc光泽11', '空白1-Oc光泽1002', '空白1-Oc光泽61'],
+      antennae: ['空白1-Oc光泽6', '空白1-Oc光泽1003'],
+      ears: [],
+      body: [],
+      legs: [],
+      arms: [],
+      wings: ['翅膀'],
+    };
+    const partRoots: Partial<Record<CustomizePart, string[]>> = {
+      ears: ['圆柱体'],
+      legs: ['圆柱体-Oc光泽11', '圆柱体-Oc光泽1003'],
+      body: ['细分曲面003'],
+      arms: ['扫描001', '扫描'],
+    };
+    for (const [part, roots] of Object.entries(partRoots) as [CustomizePart, string[]][]) {
+      for (const rootName of roots) {
+        const root = model.getObjectByName(rootName);
+        root?.traverse((object) => {
+          if (object instanceof THREE.Mesh) partMeshNames[part].push(object.name);
+        });
+      }
+    }
+    for (const [part, names] of Object.entries(partMeshNames) as [CustomizePart, string[]][]) {
+      const meshes = names
+        .map((name) => model.getObjectByName(name))
+        .filter((object): object is THREE.Mesh => object instanceof THREE.Mesh);
+      this.partMeshes.set(part, meshes);
+    }
 
     const armGroups = ['空白', '空白003']
       .map((name) => model.getObjectByName(name))
@@ -517,6 +555,42 @@ export class IpAvatar {
     this.portraitRoot.rotation.y = this.inspectionYaw ?? 0;
   }
 
+  setPartColor(part: CustomizePart, color: string | null): void {
+    const meshes = this.partMeshes.get(part);
+    if (!meshes) return;
+    for (const mesh of meshes) {
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) {
+        if (!(material instanceof THREE.MeshStandardMaterial)) continue;
+        if (!this.baseColors.has(material)) {
+          this.baseColors.set(material, material.color.clone());
+        }
+        if (color) material.color.set(color);
+        else material.color.copy(this.baseColors.get(material)!);
+      }
+    }
+  }
+
+  setFaceGlowColor(which: 'top' | 'bottom', color: string | null): void {
+    if (which === 'top') this.faceGlowTop = color ?? '#123a8f';
+    else this.faceGlowBottom = color ?? '#9fe8ff';
+    this.faceDirty = true;
+  }
+
+  setSticker(sticker: FaceSticker, enabled: boolean): void {
+    this.stickers[sticker] = enabled;
+    this.faceDirty = true;
+  }
+
+  resetCustomization(): void {
+    for (const part of this.partMeshes.keys()) this.setPartColor(part, null);
+    this.setFaceGlowColor('top', null);
+    this.setFaceGlowColor('bottom', null);
+    this.stickers.blush = false;
+    this.stickers.sparkle = false;
+    this.faceDirty = true;
+  }
+
   private drawFace(): void {
     this.faceDirty = false;
     const ctx = this.faceCtx;
@@ -530,9 +604,26 @@ export class IpAvatar {
 
     ctx.setTransform(0.6, 0, 0, 0.72, (0.53 - 0.5 * 0.6) * W, 0.28 * H);
 
-    const glow = '#9fe8ff';
-    ctx.fillStyle = glow;
-    ctx.strokeStyle = glow;
+    if (this.stickers.blush) {
+      for (const side of [-1, 1]) {
+        const bx = cx + side * W * 0.31;
+        const by = H * 0.56;
+        const blushGradient = ctx.createRadialGradient(bx, by, 0, bx, by, W * 0.055);
+        blushGradient.addColorStop(0, 'rgba(255, 122, 152, 0.9)');
+        blushGradient.addColorStop(1, 'rgba(255, 122, 152, 0)');
+        ctx.fillStyle = blushGradient;
+        ctx.beginPath();
+        ctx.ellipse(bx, by, W * 0.055, H * 0.052, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    const glow = this.faceGlowBottom;
+    const gradient = ctx.createLinearGradient(0, H * 0.15, 0, H * 0.85);
+    gradient.addColorStop(0, this.faceGlowTop);
+    gradient.addColorStop(1, glow);
+    ctx.fillStyle = gradient;
+    ctx.strokeStyle = gradient;
     ctx.shadowColor = glow;
     ctx.shadowBlur = 18;
 
@@ -590,6 +681,22 @@ export class IpAvatar {
         r,
       );
       ctx.fill();
+    }
+    if (this.stickers.sparkle) {
+      ctx.fillStyle = '#ffffff';
+      const star = (sx: number, sy: number, r: number): void => {
+        ctx.beginPath();
+        ctx.moveTo(sx, sy - r);
+        ctx.quadraticCurveTo(sx, sy, sx + r, sy);
+        ctx.quadraticCurveTo(sx, sy, sx, sy + r);
+        ctx.quadraticCurveTo(sx, sy, sx - r, sy);
+        ctx.quadraticCurveTo(sx, sy, sx, sy - r);
+        ctx.fill();
+      };
+      for (const side of [-1, 1]) {
+        star(cx + side * (eyeDX + W * 0.1) + gazeOffsetX, eyeY - eyeH * 0.62, W * 0.02);
+        star(cx + side * (eyeDX + W * 0.06) + gazeOffsetX, eyeY + eyeH * 0.66, W * 0.011);
+      }
     }
     ctx.shadowBlur = 0;
     this.faceTexture.needsUpdate = true;
