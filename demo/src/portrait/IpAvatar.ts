@@ -59,18 +59,13 @@ export class IpAvatar {
   private headRest: THREE.Quaternion | null = null;
   private armNodeL: THREE.Object3D | null = null;
   private armNodeR: THREE.Object3D | null = null;
-  private elbowL: THREE.Group | null = null;
-  private elbowR: THREE.Group | null = null;
   private wingNode: THREE.Object3D | null = null;
   private readonly armRestL = new THREE.Quaternion();
   private readonly armRestR = new THREE.Quaternion();
-  private readonly elbowRestL = new THREE.Quaternion();
-  private readonly elbowRestR = new THREE.Quaternion();
   private readonly wingRest = new THREE.Quaternion();
   private readonly armEuler = new THREE.Euler();
   private readonly armCurL = new THREE.Euler();
   private readonly armCurR = new THREE.Euler();
-  private tipBendAmount = 0;
   private speechEnergy = 0;
   private readonly limbs = new Map<LimbKey, LimbDriver>();
   private speechWeights: Readonly<SpeechRigWeights> | undefined;
@@ -200,35 +195,12 @@ export class IpAvatar {
     const worldPos = new THREE.Vector3();
     for (const group of armGroups) {
       group.getWorldPosition(worldPos);
-      const tip = group.getObjectByName('扫描-Oc光泽1002')
-        ?? group.getObjectByName('扫描-Oc光泽11')
-        ?? null;
-      const armBody = group.getObjectByName('扫描-Oc光泽6002')
-        ?? group.getObjectByName('扫描-Oc光泽61')
-        ?? null;
-      let elbow: THREE.Group | null = null;
-      if (tip && armBody && tip.parent) {
-        const parent = tip.parent;
-        elbow = new THREE.Group();
-        parent.add(elbow);
-        this.portraitRoot.updateMatrixWorld(true);
-        const tipCenter = new THREE.Box3().setFromObject(tip).getCenter(new THREE.Vector3());
-        const armCenter = new THREE.Box3().setFromObject(armBody).getCenter(new THREE.Vector3());
-        const elbowWorld = tipCenter.lerp(armCenter, 0.45);
-        elbow.position.copy(parent.worldToLocal(elbowWorld));
-        elbow.updateWorldMatrix(true, false);
-        elbow.attach(tip);
-      }
       if (worldPos.x > 0) {
         this.armNodeL = group;
         this.armRestL.copy(group.quaternion);
-        this.elbowL = elbow;
-        if (elbow) this.elbowRestL.copy(elbow.quaternion);
       } else {
         this.armNodeR = group;
         this.armRestR.copy(group.quaternion);
-        this.elbowR = elbow;
-        if (elbow) this.elbowRestR.copy(elbow.quaternion);
       }
     }
 
@@ -472,17 +444,6 @@ export class IpAvatar {
       this.wingNode.quaternion.copy(this.wingRest).multiply(this.workQuat);
     }
 
-    this.tipBendAmount = THREE.MathUtils.lerp(this.tipBendAmount, wave, damping);
-    const tipBend = this.tipBendAmount * 0.9
-      + this.tipBendAmount * Math.sin(elapsed * 7.2 + 0.9) * 0.35 * still;
-    if (this.elbowR) {
-      this.armEuler.set(0, 0, tipBend);
-      this.workQuat.setFromEuler(this.armEuler);
-      this.elbowR.quaternion.copy(this.elbowRestR).multiply(this.workQuat);
-    }
-    if (this.elbowL) {
-      this.elbowL.quaternion.copy(this.elbowRestL);
-    }
   }
 
   private updateLimbs(pose: PoseTargets, deltaSeconds: number, elapsed: number): void {
