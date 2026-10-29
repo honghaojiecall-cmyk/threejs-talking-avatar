@@ -98,6 +98,18 @@ const SHAKE_ACTION_PREVIEW: PerformanceAction = {
   source: 'llm-directive',
 };
 
+const WAVE_ACTION_PREVIEW: PerformanceAction = {
+  gesture: 'wave',
+  intensity: 1,
+  onset: 'immediate',
+  holdSeconds: 1.8,
+  releaseSeconds: 0.6,
+  valence: 0.7,
+  arousal: 0.5,
+  dominance: 0.2,
+  source: 'llm-directive',
+};
+
 interface ArticulationSummary {
   label: string;
   value: number;
@@ -319,6 +331,7 @@ export class PortraitApp {
       Digit8: SMILE_ACTION_PREVIEW,
       Digit9: NOD_ACTION_PREVIEW,
       Digit0: SHAKE_ACTION_PREVIEW,
+      Minus: WAVE_ACTION_PREVIEW,
     }[event.code];
     if (actionPreview) {
       event.preventDefault();
@@ -704,6 +717,17 @@ export class PortraitApp {
     const greeting =
       '你好呀!我是你的本地语音头像,所有模型都在这台设备上运行。准备好啦,直接开口跟我说话吧!';
     this.agentReply.textContent = greeting;
+    this.speech.performAction({
+      gesture: 'wave',
+      intensity: 0.9,
+      onset: 'immediate',
+      holdSeconds: 1.8,
+      releaseSeconds: 0.6,
+      valence: 0.7,
+      arousal: 0.5,
+      dominance: 0.2,
+      source: 'llm-directive',
+    });
     void (async () => {
       try {
         if (!abort.signal.aborted) this.renderLocalAgentState('speaking');

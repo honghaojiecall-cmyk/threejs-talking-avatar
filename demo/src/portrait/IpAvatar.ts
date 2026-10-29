@@ -57,6 +57,21 @@ export class IpAvatar {
   };
   private headBone: THREE.Object3D | null = null;
   private headRest: THREE.Quaternion | null = null;
+  private armNodeL: THREE.Object3D | null = null;
+  private armNodeR: THREE.Object3D | null = null;
+  private elbowL: THREE.Group | null = null;
+  private elbowR: THREE.Group | null = null;
+  private wingNode: THREE.Object3D | null = null;
+  private readonly armRestL = new THREE.Quaternion();
+  private readonly armRestR = new THREE.Quaternion();
+  private readonly elbowRestL = new THREE.Quaternion();
+  private readonly elbowRestR = new THREE.Quaternion();
+  private readonly wingRest = new THREE.Quaternion();
+  private readonly armEuler = new THREE.Euler();
+  private readonly armCurL = new THREE.Euler();
+  private readonly armCurR = new THREE.Euler();
+  private tipBendAmount = 0;
+  private speechEnergy = 0;
   private readonly limbs = new Map<LimbKey, LimbDriver>();
   private speechWeights: Readonly<SpeechRigWeights> | undefined;
   private performanceFrame: Readonly<ExpressivePerformanceFrame> | undefined;
@@ -150,6 +165,10 @@ export class IpAvatar {
         this.headBone = object;
         this.headRest = object.quaternion.clone();
       }
+      if (object.name === '翅膀') {
+        this.wingNode = object;
+        this.wingRest.copy(object.quaternion);
+      }
       if (object instanceof THREE.Mesh) {
         object.frustumCulled = false;
         if (object.name === FACE_MESH_NAME) {
@@ -174,6 +193,44 @@ export class IpAvatar {
       }
     });
     if (!this.headBone) throw new Error('The IP asset is missing its head bone.');
+
+    const armGroups = ['空白', '空白003']
+      .map((name) => model.getObjectByName(name))
+      .filter((object): object is THREE.Object3D => Boolean(object));
+    const worldPos = new THREE.Vector3();
+    for (const group of armGroups) {
+      group.getWorldPosition(worldPos);
+      const tip = group.getObjectByName('扫描-Oc光泽1002')
+        ?? group.getObjectByName('扫描-Oc光泽11')
+        ?? null;
+      const armBody = group.getObjectByName('扫描-Oc光泽6002')
+        ?? group.getObjectByName('扫描-Oc光泽61')
+        ?? null;
+      let elbow: THREE.Group | null = null;
+      if (tip && armBody && tip.parent) {
+        const parent = tip.parent;
+        elbow = new THREE.Group();
+        parent.add(elbow);
+        this.portraitRoot.updateMatrixWorld(true);
+        const tipCenter = new THREE.Box3().setFromObject(tip).getCenter(new THREE.Vector3());
+        const armCenter = new THREE.Box3().setFromObject(armBody).getCenter(new THREE.Vector3());
+        const elbowWorld = tipCenter.lerp(armCenter, 0.45);
+        elbow.position.copy(parent.worldToLocal(elbowWorld));
+        elbow.updateWorldMatrix(true, false);
+        elbow.attach(tip);
+      }
+      if (worldPos.x > 0) {
+        this.armNodeL = group;
+        this.armRestL.copy(group.quaternion);
+        this.elbowL = elbow;
+        if (elbow) this.elbowRestL.copy(elbow.quaternion);
+      } else {
+        this.armNodeR = group;
+        this.armRestR.copy(group.quaternion);
+        this.elbowR = elbow;
+        if (elbow) this.elbowRestR.copy(elbow.quaternion);
+      }
+    }
 
     for (const key of Object.keys(LIMB_BONES) as LimbKey[]) {
       const bone = model.getObjectByName(LIMB_BONES[key]);
@@ -360,21 +417,104 @@ export class IpAvatar {
     const idleSway = this.reducedMotion ? 0 : Math.sin(elapsed * 0.6) * 0.008;
     this.updateHeadRotation(deltaSeconds, idleSway);
     this.updateLimbs(pose, deltaSeconds, elapsed);
+    this.updateBody(pose, deltaSeconds, elapsed);
+  }
+
+  private updateBody(pose: PoseTargets, deltaSeconds: number, elapsed: number): void {
+    const energyTarget = this.reducedMotion ? 0 : clamp((pose.jaw ?? 0) * 1.6);
+    this.speechEnergy = THREE.MathUtils.lerp(
+      this.speechEnergy, energyTarget, 1 - Math.exp(-deltaSeconds * 8));
+    const gesture = this.performanceFrame?.diagnostics.actionGesture;
+    const surprise = gesture === 'surprise' ? 1 : 0;
+    const gestureWave = gesture === 'wave' ? 1 : 0;
+    const excited = gesture === 'smile' || surprise || gestureWave ? 1 : 0;
+    const curious = gesture === 'curiosity' ? 1 : 0;
+    const concern = gesture === 'concern' ? 1 : 0;
+    const wave = Math.max(clamp(pose.wave ?? 0), gestureWave);
+    const still = this.reducedMotion ? 0 : 1;
+
+    const bobAmp = (0.012 * this.speechEnergy + 0.035 * excited) * still;
+    this.portraitRoot.position.y =
+      Math.abs(Math.sin(elapsed * (excited ? 6.5 : 5.2))) * bobAmp;
+
+    const swing = Math.sin(elapsed * 5.2) * 0.12 * this.speechEnergy * still;
+    const swingAlt = Math.sin(elapsed * 5.2 + Math.PI) * 0.12 * this.speechEnergy * still;
+    const breathe = Math.sin(elapsed * 0.8) * 0.05 * still;
+    const outward = 0.18 * this.speechEnergy;
+    const waveShake = wave * Math.sin(elapsed * 7.2) * 0.25 * still;
+
+    const damping = 1 - Math.exp(-deltaSeconds * 6);
+    this.armCurL.x = THREE.MathUtils.lerp(this.armCurL.x, swing, damping);
+    this.armCurL.z = THREE.MathUtils.lerp(
+      this.armCurL.z, breathe - outward - 0.95 * surprise - 0.05 * concern, damping);
+    this.armCurR.x = THREE.MathUtils.lerp(
+      this.armCurR.x, swingAlt + 0.35 * wave, damping);
+    this.armCurR.z = THREE.MathUtils.lerp(
+      this.armCurR.z,
+      -breathe - outward - 0.95 * surprise - 0.4 * curious - 0.05 * concern
+        - wave * 0.85 + waveShake,
+      damping);
+
+    if (this.armNodeL) {
+      this.armEuler.set(this.armCurL.x, 0, this.armCurL.z);
+      this.workQuat.setFromEuler(this.armEuler);
+      this.armNodeL.quaternion.copy(this.armRestL).multiply(this.workQuat);
+    }
+    if (this.armNodeR) {
+      this.armEuler.set(this.armCurR.x, 0, this.armCurR.z);
+      this.workQuat.setFromEuler(this.armEuler);
+      this.armNodeR.quaternion.copy(this.armRestR).multiply(this.workQuat);
+    }
+    if (this.wingNode) {
+      const flutter = Math.sin(elapsed * 6.2) * (0.06 + 0.14 * this.speechEnergy + 0.2 * excited) * still;
+      this.armEuler.set(0, flutter, 0);
+      this.workQuat.setFromEuler(this.armEuler);
+      this.wingNode.quaternion.copy(this.wingRest).multiply(this.workQuat);
+    }
+
+    this.tipBendAmount = THREE.MathUtils.lerp(this.tipBendAmount, wave, damping);
+    const tipBend = this.tipBendAmount * 0.9
+      + this.tipBendAmount * Math.sin(elapsed * 7.2 + 0.9) * 0.35 * still;
+    if (this.elbowR) {
+      this.armEuler.set(0, 0, tipBend);
+      this.workQuat.setFromEuler(this.armEuler);
+      this.elbowR.quaternion.copy(this.elbowRestR).multiply(this.workQuat);
+    }
+    if (this.elbowL) {
+      this.elbowL.quaternion.copy(this.elbowRestL);
+    }
   }
 
   private updateLimbs(pose: PoseTargets, deltaSeconds: number, elapsed: number): void {
     const gesture = this.performanceFrame?.diagnostics.actionGesture;
     const emphasis = gesture === 'emphasis' ? 1 : 0;
+    const surprise = gesture === 'surprise' ? 1 : 0;
+    const curious = gesture === 'curiosity' ? 1 : 0;
+    const concern = gesture === 'concern' ? 1 : 0;
     const wave = clamp(pose.wave ?? 0);
     const still = this.reducedMotion ? 0 : 1;
     const breathe = Math.sin(elapsed * 0.8) * 0.03 * still;
     const breatheAlt = Math.sin(elapsed * 0.8 + 1.7) * 0.025 * still;
+    const swing = Math.sin(elapsed * 5.2) * 0.14 * this.speechEnergy * still;
+    const swingAlt = Math.sin(elapsed * 5.2 + Math.PI) * 0.14 * this.speechEnergy * still;
 
     const targets: Record<LimbKey, [number, number, number]> = {
-      shoulderL: [breathe * 0.3, 0.35 * emphasis, -1.6 + breathe],
-      shoulderR: [breatheAlt * 0.3, -0.35 * emphasis - 1.0 * wave, 1.6 * (1 - wave) + breatheAlt],
-      elbowL: [0, 0.15 * emphasis, 0],
-      elbowR: [0, -0.15 * emphasis - (0.7 + Math.sin(elapsed * 7.2) * 0.35) * wave, 0],
+      shoulderL: [
+        breathe * 0.3 + swing * 0.6,
+        0.35 * emphasis + 0.85 * surprise,
+        -1.6 * (1 - surprise * 0.8) + breathe + swing * 0.3 - 0.15 * concern,
+      ],
+      shoulderR: [
+        breatheAlt * 0.3 + swingAlt * 0.6,
+        -0.35 * emphasis - 1.0 * wave - 0.85 * surprise - 0.4 * curious,
+        1.6 * (1 - wave) * (1 - surprise * 0.8) + breatheAlt + swingAlt * 0.3 + 0.15 * concern,
+      ],
+      elbowL: [0, 0.15 * emphasis + 0.3 * surprise, 0],
+      elbowR: [
+        0,
+        -0.15 * emphasis - (0.7 + Math.sin(elapsed * 7.2) * 0.35) * wave - 0.3 * surprise,
+        0,
+      ],
     };
     const damping = 1 - Math.exp(-deltaSeconds * 6);
     const axes = ['x', 'y', 'z'] as const;
