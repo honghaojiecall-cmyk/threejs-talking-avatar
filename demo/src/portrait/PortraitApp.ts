@@ -110,6 +110,38 @@ const WAVE_ACTION_PREVIEW: PerformanceAction = {
   source: 'llm-directive',
 };
 
+function makeActionPreview(
+  gesture: PerformanceAction['gesture'],
+  overrides: Partial<PerformanceAction> = {},
+): PerformanceAction {
+  return {
+    gesture,
+    intensity: 1,
+    onset: 'immediate',
+    holdSeconds: 1.2,
+    releaseSeconds: 0.5,
+    valence: 0,
+    arousal: 0.5,
+    dominance: 0,
+    source: 'llm-directive',
+    ...overrides,
+  };
+}
+
+const ACTION_MENU: ReadonlyArray<{ gesture: string; label: string; action: PerformanceAction }> = [
+  { gesture: 'smile', label: '微笑', action: SMILE_ACTION_PREVIEW },
+  { gesture: 'nod', label: '点头', action: NOD_ACTION_PREVIEW },
+  { gesture: 'shake', label: '摇头', action: SHAKE_ACTION_PREVIEW },
+  { gesture: 'wave', label: '挥手', action: WAVE_ACTION_PREVIEW },
+  { gesture: 'surprise', label: '惊讶', action: makeActionPreview('surprise', { arousal: 0.9, valence: 0.3, holdSeconds: 1.4 }) },
+  { gesture: 'curiosity', label: '好奇', action: makeActionPreview('curiosity', { valence: 0.3, holdSeconds: 1.6 }) },
+  { gesture: 'emphasis', label: '强调', action: makeActionPreview('emphasis', { arousal: 0.7, dominance: 0.6, holdSeconds: 0.8, releaseSeconds: 0.3 }) },
+  { gesture: 'concern', label: '关心', action: makeActionPreview('concern', { valence: -0.3, arousal: 0.35, holdSeconds: 1.5 }) },
+  { gesture: 'glance_left', label: '左瞥', action: makeActionPreview('glance_left', { arousal: 0.3, holdSeconds: 0.9 }) },
+  { gesture: 'glance_right', label: '右瞥', action: makeActionPreview('glance_right', { arousal: 0.3, holdSeconds: 0.9 }) },
+  { gesture: 'reset', label: '复位', action: makeActionPreview('reset', { arousal: 0.2, holdSeconds: 0.2, releaseSeconds: 0.4 }) },
+];
+
 interface ArticulationSummary {
   label: string;
   value: number;
@@ -335,12 +367,7 @@ export class PortraitApp {
     }[event.code];
     if (actionPreview) {
       event.preventDefault();
-      this.speech.cancel();
-      this.portrait.clearPreviewState();
-      this.portrait.setPausedForScreenshot(false);
-      this.speech.setConversationState('thinking');
-      this.speech.performAction(actionPreview);
-      document.body.dataset.testState = `action-${actionPreview.gesture}`;
+      this.triggerActionPreview(actionPreview);
       return;
     }
     const scenarios: Readonly<Record<string, string>> = {
@@ -358,6 +385,15 @@ export class PortraitApp {
     this.setExpressionScenario(scenario);
   };
 
+  private triggerActionPreview(actionPreview: PerformanceAction): void {
+    this.speech.cancel();
+    this.portrait.clearPreviewState();
+    this.portrait.setPausedForScreenshot(false);
+    this.speech.setConversationState('thinking');
+    this.speech.performAction(actionPreview);
+    document.body.dataset.testState = `action-${actionPreview.gesture}`;
+  }
+
   constructor(canvas: HTMLCanvasElement) {
     this.portrait = new IpAvatar(canvas, (progress) => this.onLoadProgress(progress));
     this.speech = new SpeechController();
@@ -367,6 +403,12 @@ export class PortraitApp {
     this.speechSnapshot = this.speech.snapshot();
     this.unsubscribeSpeech = this.speech.subscribe((snapshot) => this.renderSpeechState(snapshot));
     this.ttsSelect.value = DEFAULT_TTS_MODEL_ID;
+    document.querySelectorAll<HTMLButtonElement>('[data-action-gesture]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const entry = ACTION_MENU.find((item) => item.gesture === button.dataset.actionGesture);
+        if (entry) this.triggerActionPreview(entry.action);
+      });
+    });
     this.installEvents();
     if (import.meta.env.DEV) {
       window.addEventListener('keydown', this.onExpressionReviewKey);

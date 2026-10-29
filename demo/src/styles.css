@@ -1284,6 +1284,34 @@ body[data-agent-state="listening"] .talk-glyph {
   margin-top: 10px;
 }
 
+.action-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px;
+  padding: 2px 10px 12px;
+}
+
+.action-menu-grid button {
+  padding: 9px 4px;
+  border: 1px solid var(--rule);
+  background: rgba(255, 255, 255, 0.03);
+  color: #cbd2d9;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+
+.action-menu-grid button:hover {
+  border-color: var(--accent-strong);
+  color: #ffffff;
+}
+
+.action-menu-grid button:active {
+  background: rgba(217, 154, 105, 0.16);
+}
+
 .api-key-manager {
   position: relative;
   margin: 0 9px 10px;
