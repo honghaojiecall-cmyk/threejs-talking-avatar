@@ -97,8 +97,8 @@ export class IpAvatar {
   };
   private readonly partMeshes = new Map<CustomizePart, THREE.Mesh[]>();
   private readonly baseColors = new Map<THREE.Material, THREE.Color>();
-  private faceGlowTop = '#123a8f';
-  private faceGlowBottom = '#9fe8ff';
+  private faceGlowTop = '#5fb4ff';
+  private faceGlowBottom = '#c4f0ff';
   private readonly stickers: Record<FaceSticker, boolean> = { blush: false, sparkle: false };
   private faceDirty = true;
 
@@ -572,8 +572,8 @@ export class IpAvatar {
   }
 
   setFaceGlowColor(which: 'top' | 'bottom', color: string | null): void {
-    if (which === 'top') this.faceGlowTop = color ?? '#123a8f';
-    else this.faceGlowBottom = color ?? '#9fe8ff';
+    if (which === 'top') this.faceGlowTop = color ?? '#5fb4ff';
+    else this.faceGlowBottom = color ?? '#c4f0ff';
     this.faceDirty = true;
   }
 
@@ -599,7 +599,11 @@ export class IpAvatar {
     const cx = W / 2;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#060b16';
+    const screenGradient = ctx.createLinearGradient(0, 0, 0, H);
+    screenGradient.addColorStop(0, '#1a36a8');
+    screenGradient.addColorStop(0.55, '#142674');
+    screenGradient.addColorStop(1, '#070f38');
+    ctx.fillStyle = screenGradient;
     ctx.fillRect(0, 0, W, H);
 
     ctx.setTransform(0.6, 0, 0, 0.72, (0.53 - 0.5 * 0.6) * W, 0.28 * H);
@@ -632,9 +636,9 @@ export class IpAvatar {
     const gazeOffsetY = -pose.gazeY * H * 0.04;
     const eyeY = H * 0.38 + gazeOffsetY;
     const eyeDX = W * 0.2;
-    const eyeCols = 6;
+    const eyeCols = 7;
     const eyeRows = 11;
-    const eyeW = W * 0.16;
+    const eyeW = W * 0.185;
     const eyeH = H * 0.24 * Math.max(0.04, pose.eyeOpen);
     const pitchX = eyeW / eyeCols;
     const pitchY = eyeH / eyeRows;

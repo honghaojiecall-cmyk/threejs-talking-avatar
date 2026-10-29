@@ -430,7 +430,7 @@ export class PortraitApp {
       document.querySelectorAll<HTMLInputElement>('[data-custom-part]').forEach((input) => {
         input.value = '#ffffff';
       });
-      const glowDefaults: Record<string, string> = { top: '#123a8f', bottom: '#9fe8ff' };
+      const glowDefaults: Record<string, string> = { top: '#5fb4ff', bottom: '#c4f0ff' };
       document.querySelectorAll<HTMLInputElement>('[data-custom-glow]').forEach((input) => {
         input.value = glowDefaults[input.dataset.customGlow ?? 'top'];
       });

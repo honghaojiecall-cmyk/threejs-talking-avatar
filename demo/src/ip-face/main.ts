@@ -58,14 +58,18 @@ function drawFace(): void {
   const ctx = faceCtx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, FACE_W, FACE_H);
-  ctx.fillStyle = '#060b16';
+  const sg = ctx.createLinearGradient(0, 0, 0, FACE_H);
+  sg.addColorStop(0, '#1a36a8');
+  sg.addColorStop(0.55, '#142674');
+  sg.addColorStop(1, '#070f38');
+  ctx.fillStyle = sg;
   ctx.fillRect(0, 0, FACE_W, FACE_H);
 
   ctx.setTransform(0.6, 0, 0, 0.72, (0.62 - 0.5 * 0.6) * FACE_W, 0.28 * FACE_H);
 
-  const glow = '#9fe8ff';
+  const glow = '#c4f0ff';
   const gradient = ctx.createLinearGradient(0, FACE_H * 0.15, 0, FACE_H * 0.85);
-  gradient.addColorStop(0, '#123a8f');
+  gradient.addColorStop(0, '#5fb4ff');
   gradient.addColorStop(1, glow);
   ctx.fillStyle = gradient;
   ctx.strokeStyle = gradient;
