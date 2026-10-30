@@ -1291,10 +1291,10 @@ export class ExpressivePerformanceController {
         ) * actionScale;
       } else if (action.gesture === 'shake') {
         actionHeadYaw = activeAction.direction * (
-          pulse(actionLocalTime, 0.2, 0.12, 0.1) * 0.11 -
-          pulse(actionLocalTime, 0.38, 0.08, 0.09) * 0.142 +
-          pulse(actionLocalTime, 0.55, 0.08, 0.08) * 0.096 -
-          pulse(actionLocalTime, 0.7, 0.07, 0.12) * 0.048
+          pulse(actionLocalTime, 0.2, 0.12, 0.1) * 0.18 -
+          pulse(actionLocalTime, 0.38, 0.08, 0.09) * 0.24 +
+          pulse(actionLocalTime, 0.55, 0.08, 0.08) * 0.16 -
+          pulse(actionLocalTime, 0.7, 0.07, 0.12) * 0.08
         ) * actionScale;
       } else if (action.gesture === 'emphasis') {
         actionHeadPitch = -pulse(actionLocalTime, 0.34, 0.18, 0.24) * 0.036 * actionScale;
@@ -1442,7 +1442,7 @@ export class ExpressivePerformanceController {
       this.activeAction = null;
     }
     this.frame.headPitch = clamp(this.channels.headPitch, -0.14, 0.1);
-    this.frame.headYaw = clamp(this.channels.headYaw, -0.16, 0.16);
+    this.frame.headYaw = clamp(this.channels.headYaw, -0.26, 0.26);
     this.frame.headRoll = clamp(this.channels.headRoll, -0.032, 0.032);
     const maximumBlink = Math.max(blinkLeft, blinkRight);
     this.frame.diagnostics.blinkPhase = maximumBlink <= 0.01

@@ -109,6 +109,8 @@ export class IpAvatar {
   private inspectionYaw: number | undefined;
   private readonly headEuler = new THREE.Euler();
   private readonly workQuat = new THREE.Quaternion();
+  private readonly headParentQuat = new THREE.Quaternion();
+  private readonly headParentQuatInv = new THREE.Quaternion();
   private currentHeadRot = new THREE.Euler();
   private readonly faceCanvas = document.createElement('canvas');
   private readonly faceCtx: CanvasRenderingContext2D;
@@ -579,7 +581,19 @@ export class IpAvatar {
 
     this.headEuler.set(this.currentHeadRot.x, this.currentHeadRot.y, this.currentHeadRot.z);
     this.workQuat.setFromEuler(this.headEuler);
-    this.headBone.quaternion.copy(this.headRest).multiply(this.workQuat);
+    const headParent = this.headBone.parent;
+    if (headParent) {
+      headParent.updateWorldMatrix(true, false);
+      headParent.getWorldQuaternion(this.headParentQuat);
+      this.headParentQuatInv.copy(this.headParentQuat).invert();
+      this.headBone.quaternion
+        .copy(this.headParentQuatInv)
+        .multiply(this.workQuat)
+        .multiply(this.headParentQuat)
+        .multiply(this.headRest);
+    } else {
+      this.headBone.quaternion.copy(this.headRest).multiply(this.workQuat);
+    }
     this.portraitRoot.rotation.y = this.inspectionYaw ?? 0;
   }
 

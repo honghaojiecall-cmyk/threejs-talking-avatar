@@ -341,6 +341,7 @@ export class SpeechController {
 
   /** Executes a semantic physical action selected by the local LLM. */
   performAction(action: PerformanceAction): void {
+    this.requestAudioUnlock();
     this.performance.performAction(action);
   }
 
