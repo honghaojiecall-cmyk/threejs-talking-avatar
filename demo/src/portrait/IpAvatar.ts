@@ -90,9 +90,12 @@ export class IpAvatar {
   private armNodeL: THREE.Object3D | null = null;
   private armNodeR: THREE.Object3D | null = null;
   private wingNode: THREE.Object3D | null = null;
+  private wingPivotL: THREE.Object3D | null = null;
+  private wingPivotR: THREE.Object3D | null = null;
+  private readonly wingParentQuat = new THREE.Quaternion();
+  private readonly wingParentQuatInv = new THREE.Quaternion();
   private readonly armRestL = new THREE.Quaternion();
   private readonly armRestR = new THREE.Quaternion();
-  private readonly wingRest = new THREE.Quaternion();
   private readonly armEuler = new THREE.Euler();
   private readonly armCurL = new THREE.Euler();
   private readonly armCurR = new THREE.Euler();
@@ -130,6 +133,8 @@ export class IpAvatar {
   private faceGlowBottom = '#c4f0ff';
   private readonly stickers: Record<FaceSticker, boolean> = { blush: false, sparkle: false };
   private faceDirty = true;
+  private lastFaceDrawMs = -Infinity;
+  private faceBgCanvas: HTMLCanvasElement | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -146,10 +151,8 @@ export class IpAvatar {
     this.controls.enablePan = false;
     this.controls.minDistance = 0.3;
     this.controls.maxDistance = 4.5;
-    this.controls.minPolarAngle = Math.PI * 0.35;
-    this.controls.maxPolarAngle = Math.PI * 0.65;
-    this.controls.minAzimuthAngle = -0.6;
-    this.controls.maxAzimuthAngle = 0.6;
+    this.controls.minPolarAngle = Math.PI * 0.15;
+    this.controls.maxPolarAngle = Math.PI * 0.85;
 
     this.faceCanvas.width = FACE_CANVAS_W;
     this.faceCanvas.height = FACE_CANVAS_H;
@@ -199,7 +202,6 @@ export class IpAvatar {
       }
       if (object.name === '翅膀') {
         this.wingNode = object;
-        this.wingRest.copy(object.quaternion);
       }
       if (object instanceof THREE.Mesh) {
         object.frustumCulled = false;
@@ -226,6 +228,148 @@ export class IpAvatar {
     });
     if (!this.headBone) throw new Error('The IP asset is missing its head bone.');
 
+    if (this.wingNode instanceof THREE.Mesh && this.wingNode.parent) {
+      model.updateMatrixWorld(true);
+      const src = this.wingNode;
+      const srcGeom = src.geometry;
+      const posAttr = srcGeom.getAttribute('position');
+      const index = srcGeom.getIndex();
+      const triCount = (index ? index.count : posAttr.count) / 3;
+
+      // The wing mesh holds several disjoint plates. Group triangles by
+      // connected component and split whole components left/right, so the seam
+      // runs through the empty gap between the wings instead of cutting across
+      // a plate (which would open a visible crack when the halves rotate).
+      const uf = new Int32Array(posAttr.count);
+      for (let i = 0; i < posAttr.count; i++) uf[i] = i;
+      const find = (a: number): number => {
+        while (uf[a] !== a) { uf[a] = uf[uf[a]]; a = uf[a]; }
+        return a;
+      };
+      for (let t = 0; t < triCount; t++) {
+        const i0 = index ? index.getX(t * 3) : t * 3;
+        const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+        const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+        const ri = find(i0);
+        uf[find(i1)] = ri;
+        uf[find(i2)] = ri;
+      }
+      const va = new THREE.Vector3();
+      const vb = new THREE.Vector3();
+      const vc = new THREE.Vector3();
+      const compSumX = new Map<number, number>();
+      const compSumZ = new Map<number, number>();
+      const compCount = new Map<number, number>();
+      const compMinX = new Map<number, number>();
+      const compMaxX = new Map<number, number>();
+      const compMinZ = new Map<number, number>();
+      const compMaxZ = new Map<number, number>();
+      for (let t = 0; t < triCount; t++) {
+        const i0 = index ? index.getX(t * 3) : t * 3;
+        const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+        const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+        va.fromBufferAttribute(posAttr, i0).applyMatrix4(src.matrixWorld);
+        vb.fromBufferAttribute(posAttr, i1).applyMatrix4(src.matrixWorld);
+        vc.fromBufferAttribute(posAttr, i2).applyMatrix4(src.matrixWorld);
+        const root = find(i0);
+        const cx = (va.x + vb.x + vc.x) / 3;
+        const cz = (va.z + vb.z + vc.z) / 3;
+        compSumX.set(root, (compSumX.get(root) ?? 0) + cx);
+        compSumZ.set(root, (compSumZ.get(root) ?? 0) + cz);
+        compCount.set(root, (compCount.get(root) ?? 0) + 1);
+        compMinX.set(root, Math.min(compMinX.get(root) ?? Infinity, cx));
+        compMaxX.set(root, Math.max(compMaxX.get(root) ?? -Infinity, cx));
+        compMinZ.set(root, Math.min(compMinZ.get(root) ?? Infinity, cz));
+        compMaxZ.set(root, Math.max(compMaxZ.get(root) ?? -Infinity, cz));
+      }
+      // The two largest components are the wing plates. Any smaller component
+      // (e.g. a strip near the spine) goes to whichever plate's bounds contain
+      // its centre — centroid sign alone can rip it off the plate it belongs to.
+      const ranked = [...compCount.entries()].sort((a, b) => b[1] - a[1]);
+      const mainLRoot = (ranked.find(([r]) => (compSumX.get(r)! / compCount.get(r)!) < 0) ?? ranked[0])[0];
+      const mainRRoot = (ranked.find(([r]) => r !== mainLRoot) ?? ranked[0])[0];
+      const plateL = {
+        minX: compMinX.get(mainLRoot)!, maxX: compMaxX.get(mainLRoot)!,
+        minZ: compMinZ.get(mainLRoot)!, maxZ: compMaxZ.get(mainLRoot)!,
+      };
+      const plateR = {
+        minX: compMinX.get(mainRRoot)!, maxX: compMaxX.get(mainRRoot)!,
+        minZ: compMinZ.get(mainRRoot)!, maxZ: compMaxZ.get(mainRRoot)!,
+      };
+      const PAD = 0.03;
+      const inside = (x: number, z: number, b: typeof plateL): boolean =>
+        x >= b.minX - PAD && x <= b.maxX + PAD && z >= b.minZ - PAD && z <= b.maxZ + PAD;
+      const leftTris: number[] = [];
+      const rightTris: number[] = [];
+      for (let t = 0; t < triCount; t++) {
+        const root = find(index ? index.getX(t * 3) : t * 3);
+        if (root === mainLRoot) { leftTris.push(t); continue; }
+        if (root === mainRRoot) { rightTris.push(t); continue; }
+        const cx = compSumX.get(root)! / compCount.get(root)!;
+        const cz = compSumZ.get(root)! / compCount.get(root)!;
+        const inL = inside(cx, cz, plateL);
+        const inR = inside(cx, cz, plateR);
+        if (inL && !inR) leftTris.push(t);
+        else if (inR && !inL) rightTris.push(t);
+        else (cx < 0 ? leftTris : rightTris).push(t);
+      }
+      const buildHalfGeometry = (tris: number[]): THREE.BufferGeometry => {
+        const g = new THREE.BufferGeometry();
+        for (const [name, attr] of Object.entries(srcGeom.attributes)) {
+          const a = attr as THREE.BufferAttribute;
+          const out = new Float32Array(tris.length * 3 * a.itemSize);
+          let w = 0;
+          for (const t of tris) {
+            for (let k = 0; k < 3; k++) {
+              const vi = index ? index.getX(t * 3 + k) : t * 3 + k;
+              for (let c = 0; c < a.itemSize; c++) out[w++] = a.array[vi * a.itemSize + c] as number;
+            }
+          }
+          g.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize));
+        }
+        return g;
+      };
+      const halfR = src.clone();
+      halfR.geometry = buildHalfGeometry(rightTris);
+      src.geometry = buildHalfGeometry(leftTris);
+      src.name = '翅膀-左';
+      halfR.name = '翅膀-右';
+      src.parent!.add(halfR);
+
+      // Each wing hinges on a vertical axis through the middle of its own
+      // inner edge: the root stays fixed and both tips sweep forward/back in
+      // phase (mirrored angles).
+      const makePivot = (mesh: THREE.Mesh): THREE.Object3D => {
+        const box = new THREE.Box3().setFromObject(mesh);
+        const innerX = Math.abs(box.min.x) <= Math.abs(box.max.x) ? box.min.x : box.max.x;
+        const width = box.max.x - box.min.x;
+        // z of the inner-edge band (verts within 15% of the inner edge), so the
+        // hinge sits mid-edge instead of at the plate's front/back corner.
+        mesh.updateWorldMatrix(true, false);
+        const pa = mesh.geometry.getAttribute('position');
+        const e = mesh.matrixWorld.elements;
+        let zSum = 0;
+        let zCount = 0;
+        for (let i = 0; i < pa.count; i++) {
+          const x = e[0] * pa.getX(i) + e[4] * pa.getY(i) + e[8] * pa.getZ(i) + e[12];
+          if (Math.abs(x - innerX) <= width * 0.15) {
+            zSum += e[2] * pa.getX(i) + e[6] * pa.getY(i) + e[10] * pa.getZ(i) + e[14];
+            zCount++;
+          }
+        }
+        const zRoot = zCount > 0 ? zSum / zCount : (box.min.z + box.max.z) / 2;
+        const pivot = new THREE.Object3D();
+        mesh.parent!.add(pivot);
+        mesh.parent!.updateWorldMatrix(true, false);
+        pivot.position.set(innerX, (box.min.y + box.max.y) / 2, zRoot);
+        mesh.parent!.worldToLocal(pivot.position);
+        pivot.attach(mesh);
+        return pivot;
+      };
+      this.wingPivotL = makePivot(src);
+      this.wingPivotR = makePivot(halfR);
+    }
+
     const partMeshNames: Record<CustomizePart, string[]> = {
       head: ['空白1-Oc光泽11', '空白1-Oc光泽1002', '空白1-Oc光泽61'],
       antennae: ['空白1-Oc光泽6', '空白1-Oc光泽1003'],
@@ -233,7 +377,7 @@ export class IpAvatar {
       body: [],
       legs: [],
       arms: [],
-      wings: ['翅膀'],
+      wings: ['翅膀-左', '翅膀-右'],
     };
     const partRoots: Partial<Record<CustomizePart, string[]>> = {
       ears: ['圆柱体'],
@@ -342,7 +486,13 @@ export class IpAvatar {
       this.performanceFrame,
     );
     this.applyPose(pose, deltaSeconds, elapsed);
-    if (this.faceDirty) this.drawFace();
+    if (this.faceDirty) {
+      const now = performance.now();
+      if (this.pauseForScreenshot || now - this.lastFaceDrawMs >= 33) {
+        this.drawFace();
+        this.lastFaceDrawMs = now;
+      }
+    }
   }
 
   render(): void {
@@ -506,11 +656,22 @@ export class IpAvatar {
       this.workQuat.setFromEuler(this.armEuler);
       this.armNodeR.quaternion.copy(this.armRestR).multiply(this.workQuat);
     }
-    if (this.wingNode) {
+    if (this.wingPivotL && this.wingPivotR) {
       const flutter = Math.sin(elapsed * 6.2) * (0.06 + 0.14 * this.speechEnergy + 0.2 * excited) * still;
-      this.armEuler.set(0, flutter, 0);
-      this.workQuat.setFromEuler(this.armEuler);
-      this.wingNode.quaternion.copy(this.wingRest).multiply(this.workQuat);
+      const wingParent = this.wingPivotL.parent;
+      if (wingParent) {
+        wingParent.updateWorldMatrix(true, false);
+        wingParent.getWorldQuaternion(this.wingParentQuat);
+        this.wingParentQuatInv.copy(this.wingParentQuat).invert();
+        this.armEuler.set(0, flutter, 0);
+        this.workQuat.setFromEuler(this.armEuler);
+        this.wingPivotL.quaternion
+          .copy(this.wingParentQuatInv).multiply(this.workQuat).multiply(this.wingParentQuat);
+        this.armEuler.set(0, -flutter, 0);
+        this.workQuat.setFromEuler(this.armEuler);
+        this.wingPivotR.quaternion
+          .copy(this.wingParentQuatInv).multiply(this.workQuat).multiply(this.wingParentQuat);
+      }
     }
 
   }
@@ -641,12 +802,20 @@ export class IpAvatar {
     const cx = W / 2;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    const screenGradient = ctx.createLinearGradient(0, 0, 0, H);
-    screenGradient.addColorStop(0, '#1a36a8');
-    screenGradient.addColorStop(0.55, '#142674');
-    screenGradient.addColorStop(1, '#070f38');
-    ctx.fillStyle = screenGradient;
-    ctx.fillRect(0, 0, W, H);
+    if (!this.faceBgCanvas) {
+      const bg = document.createElement('canvas');
+      bg.width = W;
+      bg.height = H;
+      const bgCtx = bg.getContext('2d')!;
+      const screenGradient = bgCtx.createLinearGradient(0, 0, 0, H);
+      screenGradient.addColorStop(0, '#1a36a8');
+      screenGradient.addColorStop(0.55, '#142674');
+      screenGradient.addColorStop(1, '#070f38');
+      bgCtx.fillStyle = screenGradient;
+      bgCtx.fillRect(0, 0, W, H);
+      this.faceBgCanvas = bg;
+    }
+    ctx.drawImage(this.faceBgCanvas, 0, 0);
 
     ctx.setTransform(0.6, 0, 0, 0.72, (0.53 - 0.5 * 0.6) * W, 0.28 * H);
 
@@ -670,8 +839,6 @@ export class IpAvatar {
     gradient.addColorStop(1, glow);
     ctx.fillStyle = gradient;
     ctx.strokeStyle = gradient;
-    ctx.shadowColor = glow;
-    ctx.shadowBlur = 18;
 
     const pose = this.facePose;
     const gazeOffsetX = pose.gazeX * W * 0.03;
@@ -680,6 +847,26 @@ export class IpAvatar {
     const eyeDX = W * 0.2;
     const eyeW = W * 0.225;
     const eyeH = H * 0.22 * Math.max(0.04, pose.eyeOpen);
+
+    // Soft halo behind the eyes/mouth replaces per-rect shadowBlur (far cheaper).
+    ctx.globalAlpha = 0.32;
+    for (const side of [-1, 1]) {
+      const hx = cx + side * eyeDX + gazeOffsetX;
+      const halo = ctx.createRadialGradient(hx, eyeY, 0, hx, eyeY, eyeW * 0.85);
+      halo.addColorStop(0, glow);
+      halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = halo;
+      ctx.fillRect(hx - eyeW, eyeY - eyeW, eyeW * 2, eyeW * 2);
+    }
+    const mouthY0 = H * 0.72 + gazeOffsetY * 0.4;
+    const mouthHalo = ctx.createRadialGradient(cx + gazeOffsetX, mouthY0, 0, cx + gazeOffsetX, mouthY0, W * 0.22);
+    mouthHalo.addColorStop(0, glow);
+    mouthHalo.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = mouthHalo;
+    ctx.fillRect(cx + gazeOffsetX - W * 0.22, mouthY0 - W * 0.22, W * 0.44, W * 0.44);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = gradient;
+    ctx.strokeStyle = gradient;
     const eyeMask = pose.smile > 0.55 ? EYE_MASK_SMILE : EYE_MASK;
     const eyeCols = eyeMask[0].length;
     const eyeRows = eyeMask.length;
@@ -700,7 +887,7 @@ export class IpAvatar {
       }
     }
 
-    const mouthY = H * 0.72 + gazeOffsetY * 0.4;
+    const mouthY = mouthY0;
     const mouthW = W * 0.2 * pose.wide * (1 - pose.round * 0.35);
     const mouthH = H * 0.03 + H * 0.24 * pose.open * (1 - pose.round * 0.25);
     const cornerLift = pose.smile * H * 0.06;
@@ -743,7 +930,6 @@ export class IpAvatar {
         star(cx + side * (eyeDX + W * 0.06) + gazeOffsetX, eyeY + eyeH * 0.66, W * 0.011);
       }
     }
-    ctx.shadowBlur = 0;
     this.faceTexture.needsUpdate = true;
   }
 

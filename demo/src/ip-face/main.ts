@@ -81,16 +81,24 @@ let targetPose: MouthPose = { ...VISEME_POSES.rest };
 let eyeOpen = 1;
 let blinkClock = 1.5;
 
+const faceBgCanvas = document.createElement('canvas');
+faceBgCanvas.width = FACE_W;
+faceBgCanvas.height = FACE_H;
+{
+  const bgCtx = faceBgCanvas.getContext('2d')!;
+  const sg = bgCtx.createLinearGradient(0, 0, 0, FACE_H);
+  sg.addColorStop(0, '#1a36a8');
+  sg.addColorStop(0.55, '#142674');
+  sg.addColorStop(1, '#070f38');
+  bgCtx.fillStyle = sg;
+  bgCtx.fillRect(0, 0, FACE_W, FACE_H);
+}
+
 function drawFace(): void {
   const ctx = faceCtx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, FACE_W, FACE_H);
-  const sg = ctx.createLinearGradient(0, 0, 0, FACE_H);
-  sg.addColorStop(0, '#1a36a8');
-  sg.addColorStop(0.55, '#142674');
-  sg.addColorStop(1, '#070f38');
-  ctx.fillStyle = sg;
-  ctx.fillRect(0, 0, FACE_W, FACE_H);
+  ctx.drawImage(faceBgCanvas, 0, 0);
 
   ctx.setTransform(0.6, 0, 0, 0.72, (0.62 - 0.5 * 0.6) * FACE_W, 0.28 * FACE_H);
 
@@ -100,14 +108,32 @@ function drawFace(): void {
   gradient.addColorStop(1, glow);
   ctx.fillStyle = gradient;
   ctx.strokeStyle = gradient;
-  ctx.shadowColor = glow;
-  ctx.shadowBlur = 18;
 
   const eyeY = FACE_H * 0.38;
   const eyeDX = FACE_W * 0.2;
   const cx = FACE_W / 2;
   const eyeW = FACE_W * 0.225;
   const eyeH = FACE_H * 0.22 * Math.max(0.06, eyeOpen);
+
+  // Soft halos replace per-rect shadowBlur (far cheaper).
+  ctx.globalAlpha = 0.32;
+  for (const side of [-1, 1]) {
+    const hx = cx + side * eyeDX;
+    const halo = ctx.createRadialGradient(hx, eyeY, 0, hx, eyeY, eyeW * 0.85);
+    halo.addColorStop(0, glow);
+    halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(hx - eyeW, eyeY - eyeW, eyeW * 2, eyeW * 2);
+  }
+  const mouthY0 = FACE_H * 0.72;
+  const mouthHalo = ctx.createRadialGradient(cx, mouthY0, 0, cx, mouthY0, FACE_W * 0.22);
+  mouthHalo.addColorStop(0, glow);
+  mouthHalo.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = mouthHalo;
+  ctx.fillRect(cx - FACE_W * 0.22, mouthY0 - FACE_W * 0.22, FACE_W * 0.44, FACE_W * 0.44);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = gradient;
+  ctx.strokeStyle = gradient;
   const eyeMask = currentPose.smile > 0.55 ? EYE_MASK_SMILE : EYE_MASK;
   const eyeCols = eyeMask[0].length;
   const eyeRows = eyeMask.length;
@@ -128,7 +154,7 @@ function drawFace(): void {
     }
   }
 
-  const mouthY = FACE_H * 0.72;
+  const mouthY = mouthY0;
   const mouthW = FACE_W * 0.2 * currentPose.wide * (1 - currentPose.round * 0.35);
   const mouthH = FACE_H * 0.03 + FACE_H * 0.24 * currentPose.open * (1 - currentPose.round * 0.25);
   const cornerLift = currentPose.smile * FACE_H * 0.06;
@@ -144,7 +170,6 @@ function drawFace(): void {
     ctx.roundRect(cx - mouthW / 2, mouthY - mouthH / 2 - cornerLift * 0.3, mouthW, mouthH, r);
     ctx.fill();
   }
-  ctx.shadowBlur = 0;
   faceTexture.needsUpdate = true;
 }
 

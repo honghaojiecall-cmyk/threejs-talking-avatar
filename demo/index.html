@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#030509" />
+    <style>html{background:#030509}</style>
+    <link rel="stylesheet" href="/src/styles.css" />
     <meta
       name="description"
       content="一个开源的 Three.js 说话头像演示,基于 Google GNM、本地 WebGPU 模型、浏览器语音与原生面部关节驱动。"
@@ -17,11 +19,10 @@
         aria-label="可交互的群体均值 GNM 头像。拖拽旋转,滚动缩放距离。"
       ></canvas>
 
-      <header class="masthead">
+      <!-- <header class="masthead">
         <a class="wordmark" href="#speech-studio" aria-label="GNM + Three.js 说话头像主页">
           <span class="wordmark-mark" aria-hidden="true">G∕00</span>
           <span class="wordmark-copy">
-            <strong>GNM + Three.js</strong>
             <small>说话头像</small>
           </span>
         </a>
@@ -31,22 +32,32 @@
           <span>均值身份</span>
           <span>67 个形变</span>
         </div>
-      </header>
+      </header> -->
 
       <aside class="scene-note" aria-label="头像控制">
         <p><span class="scene-note-index">01</span> 拖拽查看,滚动拉近。</p>
         <button id="open-evidence" class="text-button" type="button">
           关于绑定 <span aria-hidden="true">↗</span>
         </button>
-        <a
+        <!-- <a
           class="text-button"
           href="https://github.com/majidmanzarpour/threejs-talking-avatar"
           target="_blank"
           rel="noreferrer"
         >
           GitHub <span aria-hidden="true">↗</span>
-        </a>
+        </a> -->
       </aside>
+
+      <button
+        id="sidebar-toggle"
+        class="sidebar-toggle"
+        type="button"
+        aria-expanded="true"
+        aria-label="隐藏面板"
+      >
+        <span aria-hidden="true">⟨</span>
+      </button>
 
       <section id="speech-studio" class="speech-studio" aria-labelledby="studio-title">
         <div class="studio-kicker">
@@ -468,13 +479,13 @@
             克隆本项目,换成你喜欢的本地模型,把 GNM 绑定接到
             你自己的智能体体验上。
           </p>
-          <a
+          <!-- <a
             href="https://github.com/majidmanzarpour/threejs-talking-avatar"
             target="_blank"
             rel="noreferrer"
           >
             在 GitHub 查看项目 <span aria-hidden="true">↗</span>
-          </a>
+          </a> -->
         </aside>
       </section>
 

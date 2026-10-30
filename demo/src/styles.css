@@ -253,6 +253,58 @@ summary:focus-visible {
   box-shadow: -28px 0 70px rgba(0, 0, 0, 0.42);
   scrollbar-color: rgba(217, 154, 105, 0.36) transparent;
   scrollbar-width: thin;
+  transition: transform 340ms cubic-bezier(0.32, 0.72, 0.24, 1), box-shadow 340ms ease;
+  will-change: transform;
+}
+
+.speech-studio.is-collapsed {
+  transform: translateX(calc(100% - 28px));
+  box-shadow: none;
+}
+
+.sidebar-toggle {
+  position: fixed;
+  top: 50%;
+  right: calc(var(--panel-width) - 28px);
+  z-index: 7;
+  width: 28px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  background: linear-gradient(180deg, rgba(17, 23, 32, 0.97), rgba(8, 11, 16, 0.98));
+  color: #aab8cc;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: -8px 0 22px rgba(0, 0, 0, 0.5);
+  transform: translateY(-50%);
+  transition:
+    right 340ms cubic-bezier(0.32, 0.72, 0.24, 1),
+    color 160ms ease,
+    background 160ms ease;
+}
+
+.sidebar-toggle:hover {
+  color: var(--accent-strong);
+  background: linear-gradient(180deg, rgba(23, 30, 41, 0.98), rgba(11, 15, 21, 0.99));
+}
+
+.sidebar-toggle span {
+  display: block;
+  transition: transform 340ms cubic-bezier(0.32, 0.72, 0.24, 1);
+}
+
+.sidebar-toggle.is-collapsed {
+  right: 0;
+}
+
+.sidebar-toggle.is-collapsed span {
+  transform: rotate(180deg);
 }
 
 @supports (backdrop-filter: blur(18px)) {
