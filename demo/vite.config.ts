@@ -45,6 +45,16 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5188,
     strictPort: true,
+    proxy: {
+      // Browser-safe relay for the cloud LLM: gtw.phone580.com sends a
+      // non-compliant Access-Control-Allow-Origin header, so direct calls from
+      // the browser are blocked; the dev server proxies same-origin instead.
+      '/llm-api': {
+        target: 'https://gtw.phone580.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/llm-api/, ''),
+      },
+    },
   },
   preview: {
     host: '127.0.0.1',

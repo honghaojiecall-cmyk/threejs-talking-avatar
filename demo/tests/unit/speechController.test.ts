@@ -147,11 +147,11 @@ test('controller schedules audio and articulation from the same Web Audio time',
   const prepared = await controller.speak('m');
   const source = audioContext.sources[0];
   assert.equal(prepared.source, 'live-synthesis');
-  assert.equal(source.startedAt, 12.045);
+  assert.equal(source.startedAt, 12.02);
   assert.equal(typeof controller.scheduledPlaybackStartAt(), 'number');
   assert.deepEqual(states, ['idle', 'loading', 'ready', 'playing']);
 
-  audioContext.currentTime = 12.12;
+  audioContext.currentTime = 12.095;
   assert.ok(controller.update().lipsTogether > 0);
   assert.ok(Math.abs(controller.updatePerformance().diagnostics.speechTime - 0.075) < 1e-6);
 
@@ -163,7 +163,7 @@ test('controller schedules audio and articulation from the same Web Audio time',
 
   audioContext.currentTime = 13;
   await controller.replay();
-  assert.equal(audioContext.sources[1].startedAt, 13.045);
+  assert.equal(audioContext.sources[1].startedAt, 13.02);
   controller.cancel();
   assert.equal(controller.snapshot().state, 'ready');
 });
@@ -194,7 +194,7 @@ test('local PCM uses Kokoro IPA, waveform timing, one AV clock, and cancellation
 
   assert.equal(prepared.source, 'local-pcm');
   assert.equal(prepared.durationSeconds, 1);
-  assert.equal(source.startedAt, 12.045);
+  assert.equal(source.startedAt, 12.02);
   assert.equal(source.buffer, audioContext.buffers[0] as unknown as AudioBuffer);
   assert.notEqual(copiedPcm, pcm);
   assert.deepEqual(copiedPcm, pcm);
@@ -301,7 +301,7 @@ test('timestamped Kokoro timing keeps its audio clock while the beaches reply pe
     },
   );
   const source = audioContext.sources[0];
-  assert.equal(source.startedAt, 12.045);
+  assert.equal(source.startedAt, 12.02);
   assert.equal(prepared.phonemes[0].endTime, 0.18);
   assert.equal(prepared.phonemes[0].timingOrigin, 'synthesis-native');
 

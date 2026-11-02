@@ -82,6 +82,14 @@ interface GnmAvatarTestHooks {
   hideDebugUi(hidden: boolean): void;
   /** Draw and read the raw WebGL buffer in the same task for canvas-only QA. */
   captureCanvasPng(): string;
+  /** Submit a typed transcript through the brain/TTS turn pipeline (QA only). */
+  submitTranscript(text: string): Promise<void>;
+  /** Play two synthetic clauses back-to-back and report the inter-clause gap. */
+  measureClauseGap(clauseSeconds?: number): Promise<{
+    start1: number;
+    start2: number;
+    gapSeconds: number;
+  }>;
 }
 
 interface Window {

@@ -300,6 +300,8 @@ export class PortraitApp {
   private localAgentState: LocalAgentState = 'idle';
   private micSessionActive = false;
   private micVoiceActive = false;
+  private autoRestartAttempts = 0;
+  private autoRestartTimer: ReturnType<typeof setTimeout> | undefined;
   private micRms = 0;
   private micSpeechProbability = 0;
   private renderedMicLevel = 0;
@@ -664,7 +666,7 @@ export class PortraitApp {
     }
   }
 
-  private async startLocalConversation(): Promise<void> {
+  private async startLocalConversation(options: { greet?: boolean } = {}): Promise<void> {
     const localAgent = this.localAgent;
     if (!localAgent) return;
     this.portrait.clearPreviewState();
@@ -681,7 +683,12 @@ export class PortraitApp {
       await localAgent.agent.startListening();
       this.localModelsReady = true;
       this.micSessionActive = true;
+      this.autoRestartAttempts = 0;
       this.renderLocalAgentState('listening');
+<<<<<<< Updated upstream
+=======
+      if (options.greet !== false) this.playGreeting(localAgent);
+>>>>>>> Stashed changes
     } catch (error) {
       this.micSessionActive = false;
       this.micVoiceActive = false;
@@ -694,7 +701,84 @@ export class PortraitApp {
     }
   }
 
+<<<<<<< Updated upstream
   private async stopLocalConversation(): Promise<void> {
+=======
+  private playGreeting(localAgent: BrowserLocalAgent): void {
+    this.greetingAbort?.abort();
+    const abort = new AbortController();
+    this.greetingAbort = abort;
+    const greeting =
+      '你好呀!我是你的本地语音头像,所有模型都在这台设备上运行。准备好啦,直接开口跟我说话吧!';
+    this.agentReply.textContent = greeting;
+    this.speech.performAction({
+      gesture: 'wave',
+      intensity: 0.9,
+      onset: 'immediate',
+      holdSeconds: 1.8,
+      releaseSeconds: 0.6,
+      valence: 0.7,
+      arousal: 0.5,
+      dominance: 0.2,
+      source: 'llm-directive',
+    });
+    void (async () => {
+      try {
+        if (!abort.signal.aborted) this.renderLocalAgentState('speaking');
+        await localAgent.speakPhrase(greeting, abort.signal);
+      } catch {
+        // The greeting is best-effort; the conversation loop stays live.
+      } finally {
+        if (this.greetingAbort === abort) this.greetingAbort = null;
+        if (
+          !abort.signal.aborted &&
+          this.micSessionActive &&
+          this.localAgentState === 'speaking'
+        ) {
+          this.renderLocalAgentState('listening');
+        }
+      }
+    })();
+  }
+
+  /**
+   * Transient failures (dead gateway channels, stalled servers, mic hiccups)
+   * used to kill the whole conversation permanently. When the session was
+   * active, rebuild the VAD and re-arm listening a few times before giving up.
+   */
+  private scheduleConversationAutoRestart(error: Error): void {
+    if (!this.micSessionActive) return;
+    const name = error.name ?? '';
+    const message = error.message ?? '';
+    const permanent = name === 'NotAllowedError' ||
+      name === 'NotFoundError' ||
+      name === 'SecurityError' ||
+      message.includes('unsupported') ||
+      message.includes('不支持');
+    if (permanent) return;
+    if (this.autoRestartAttempts >= 3) return;
+    this.autoRestartAttempts += 1;
+    if (this.autoRestartTimer !== undefined) clearTimeout(this.autoRestartTimer);
+    this.autoRestartTimer = setTimeout(() => {
+      this.autoRestartTimer = undefined;
+      void (async () => {
+        await this.stopLocalConversation();
+        // A crashed MicVAD reports "errored" internally and never resumes —
+        // force a fresh instance before re-arming the listener.
+        await this.localAgent?.resetVad();
+        await this.startLocalConversation({ greet: false });
+      })();
+    }, 1500);
+  }
+
+  private async stopLocalConversation(): Promise<void> {
+    this.greetingAbort?.abort();
+    this.greetingAbort = null;
+    if (this.autoRestartTimer !== undefined) {
+      clearTimeout(this.autoRestartTimer);
+      this.autoRestartTimer = undefined;
+    }
+>>>>>>> Stashed changes
     this.micSessionActive = false;
     this.micVoiceActive = false;
     this.micRms = 0;
@@ -771,6 +855,7 @@ export class PortraitApp {
         break;
       case 'error':
         this.renderLocalAgentState('error', event.error.message);
+        this.scheduleConversationAutoRestart(event.error);
         break;
       default:
         break;
@@ -1309,6 +1394,60 @@ export class PortraitApp {
         document.body.classList.toggle('hide-diagnostics', hidden);
       },
       captureCanvasPng: () => this.portrait.captureCanvasPng(),
+      submitTranscript: (text: string) => {
+        const agent = this.localAgent;
+        if (!agent) throw new Error('Local agent is not created yet.');
+        return agent.agent.submitTranscript(text);
+      },
+      measureClauseGap: async (clauseSeconds = 1) => {
+        const makePcm = () => {
+          const sr = 22050;
+          const pcm = new Float32Array(sr * clauseSeconds);
+          for (let i = 0; i < pcm.length; i += 1) {
+            pcm[i] = Math.sin((2 * Math.PI * 220 * i) / sr) * 0.2;
+          }
+          return { pcm, sr };
+        };
+        const first = makePcm();
+        const fakePhonemes = [
+          {
+            phone: 'a',
+            normalizedPhone: 'a',
+            startTime: 0,
+            endTime: clauseSeconds,
+            word: '测',
+            wordIndex: 0,
+            source: 'estimated-from-local-phonemes' as const,
+          },
+        ];
+        // Prepare both clauses up front, mirroring the conversational queue.
+        const prepared1 = await this.speech.prepareLocalPcm(
+          first.pcm, first.sr, '第一句。', fakePhonemes,
+        );
+        const second = makePcm();
+        const prepared2 = await this.speech.prepareLocalPcm(
+          second.pcm, second.sr, '第二句。', fakePhonemes,
+        );
+        await this.speech.playPreparedLocal(prepared1);
+        const start1 = this.speech.scheduledPlaybackStartAt() ?? 0;
+        // Mirror the conversational pipeline: queue the next clause from the
+        // 'ended' snapshot exactly like waitForSpeechPlayback does.
+        await new Promise<void>((resolve, reject) => {
+          const unsubscribe = this.speech.subscribe((snapshot) => {
+            if (snapshot.state !== 'ended') return;
+            unsubscribe();
+            this.speech.playPreparedLocal(prepared2)
+              .then(() => resolve())
+              .catch(reject);
+          });
+        });
+        const start2 = this.speech.scheduledPlaybackStartAt() ?? 0;
+        return {
+          start1,
+          start2,
+          gapSeconds: (start2 - start1) / 1000 - clauseSeconds,
+        };
+      },
     };
   }
 

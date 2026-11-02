@@ -237,6 +237,32 @@ export const SPEECH_TO_TEXT_MODELS = {
 } as const satisfies Record<SpeechToTextModelId, SpeechToTextModelDescriptor>;
 
 export const LANGUAGE_MODELS = {
+<<<<<<< Updated upstream
+=======
+  'kimi-k3-256k-api': {
+    id: 'kimi-k3-256k-api',
+    kind: 'llm',
+    displayName: '云端 LLM API',
+    description:
+      'OpenAI 兼容的云端大模型接口(当前默认 deepseek-v4.1-flash,经 /llm-api 代理转发)。无需本地下载或 GPU 显存;需要可用的 API 配额。',
+    artifact: {
+      repository: 'moonshotai/kimi-k3',
+      artifactId: 'kimi-k3-256k',
+      estimatedDownloadBytes: 0,
+      downloadSizeConfidence: 'estimate',
+      revision: null,
+    },
+    backends: OPENAI_COMPATIBLE_API,
+    license: MOONSHOT_API_LICENSE,
+    policy: {
+      releaseChannel: 'safe-default',
+      allowAutomaticDownload: true,
+      requiresExplicitConsent: false,
+    },
+    contextWindowTokens: 262_144,
+    multimodal: false,
+  },
+>>>>>>> Stashed changes
   'qwen2.5-0.5b-instruct-q4f16': {
     id: 'qwen2.5-0.5b-instruct-q4f16',
     kind: 'llm',

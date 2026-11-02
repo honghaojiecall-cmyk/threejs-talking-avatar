@@ -1,4 +1,5 @@
 import type { PhonemeInterval } from '../../speech/types';
+import type { PreparedLocalSpeech } from '../../speech/SpeechController';
 
 export type LocalTtsEngine =
   | 'kokoro'
@@ -16,6 +17,11 @@ export interface LocalTtsAudioChunk {
   phonemes: string | readonly PhonemeInterval[];
   audio: Float32Array;
   sampleRate: number;
+  /**
+   * AudioBuffer + lip-sync analysis prepared ahead of playback (while the
+   * previous clause is still sounding) to keep clause transitions gapless.
+   */
+  prepared?: PreparedLocalSpeech;
 }
 
 export interface LocalTtsSynthesisResult {

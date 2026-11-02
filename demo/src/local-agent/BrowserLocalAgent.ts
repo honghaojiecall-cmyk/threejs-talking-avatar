@@ -1,10 +1,16 @@
 import {
   LOCAL_KITTEN_VOICE,
+<<<<<<< Updated upstream
+=======
+  LOCAL_KOKORO_VOICE,
+  LOCAL_PIPER_ZH_VOICE,
+>>>>>>> Stashed changes
   LOCAL_SUPERTONIC_VOICE,
   type LocalLipSyncMode,
   type PreparedSpeech,
   type SpeechController,
   type SpeechControllerSnapshot,
+  type SyntheticVoiceDisclosure,
 } from '../speech';
 import { LocalVoiceAgent } from './LocalVoiceAgent';
 import {
@@ -32,6 +38,7 @@ import {
   SttRuntime,
   VadRuntime,
   type BrainLoadProgress,
+  type LocalTtsEngine,
   type LocalTtsSynthesisResult,
   type VadRuntimeCallbacks,
   type WorkerProgress,
@@ -189,6 +196,22 @@ export class BrowserLocalAgent {
           try {
             const result = await this.tts.synthesize(request.text);
             throwIfAborted(request.signal);
+            // Prepare AudioBuffers and lip-sync analysis NOW (the queue runs
+            // this while the previous clause is still playing) so the
+            // inter-clause gap only pays scheduling, not preparation.
+            const timingMode = this.modelRequest.lipSyncMode ?? 'auto';
+            const voice = this.voiceForEngine(result.engine);
+            result.chunks = await Promise.all(result.chunks.map(async (chunk) => ({
+              ...chunk,
+              prepared: await this.speech.prepareLocalPcm(
+                chunk.audio,
+                chunk.sampleRate,
+                chunk.text,
+                chunk.phonemes,
+                voice,
+                { timingMode },
+              ),
+            })));
             return result;
           } finally {
             request.signal.removeEventListener('abort', cancel);
@@ -264,6 +287,12 @@ export class BrowserLocalAgent {
     this.vad = null;
   }
 
+  /** Discards the current MicVAD instance so the next start builds a fresh one. */
+  async resetVad(): Promise<void> {
+    await this.vad?.dispose();
+    this.vad = null;
+  }
+
   private async startVad(context: VadStartContext<Float32Array>): Promise<void> {
     const callbacks: VadRuntimeCallbacks = {
       onSpeechStart: () => {
@@ -307,6 +336,16 @@ export class BrowserLocalAgent {
     for await (const token of this.brain.stream(history, request.signal)) yield token;
   }
 
+  private voiceForEngine(engine: LocalTtsEngine): SyntheticVoiceDisclosure {
+    return engine === 'supertonic-2'
+      ? LOCAL_SUPERTONIC_VOICE
+      : engine === 'kitten-tts-nano'
+        ? LOCAL_KITTEN_VOICE
+        : engine === 'piper-zh'
+          ? LOCAL_PIPER_ZH_VOICE
+          : LOCAL_KOKORO_VOICE;
+  }
+
   private async playSynthesis(
     request: PlaybackRequest<LocalTtsSynthesisResult>,
   ): Promise<PlaybackResult> {
@@ -320,6 +359,7 @@ export class BrowserLocalAgent {
     let reportedAudioStart = false;
     for (const chunk of request.synthesis.chunks) {
       throwIfAborted(request.signal);
+<<<<<<< Updated upstream
       prepared = await this.speech.playLocalPcm(
         chunk.audio,
         chunk.sampleRate,
@@ -336,6 +376,22 @@ export class BrowserLocalAgent {
           performanceUserText: request.performanceUserText,
         },
       );
+=======
+      prepared = chunk.prepared
+        ? await this.speech.playPreparedLocal(chunk.prepared)
+        : await this.speech.playLocalPcm(
+          chunk.audio,
+          chunk.sampleRate,
+          chunk.text,
+          chunk.phonemes,
+          this.voiceForEngine(request.synthesis.engine),
+          {
+            timingMode: this.modelRequest.lipSyncMode ?? 'auto',
+            performanceIntent: request.performanceIntent,
+            performanceUserText: request.performanceUserText,
+          },
+        );
+>>>>>>> Stashed changes
       if (!reportedAudioStart) {
         reportedAudioStart = true;
         this.callbacks.onMetric?.({

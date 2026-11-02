@@ -127,12 +127,17 @@ export class SpeechControllerError extends Error {
   }
 }
 
-interface DecodedSpeech {
+export interface DecodedSpeech {
   prepared: PreparedSpeech;
   buffer: AudioBuffer;
   acousticFrames: readonly SpeechAcousticFrame[];
   performanceIntent?: PerformanceIntent;
   performanceUserText?: string;
+}
+
+/** Opaque result of {@link SpeechController.prepareLocalPcm}, ready to play. */
+export interface PreparedLocalSpeech {
+  readonly decoded: DecodedSpeech;
 }
 
 export interface LocalPcmPlaybackOptions {
@@ -424,14 +429,20 @@ export class SpeechController {
    * Plays mono PCM produced by a local speech runtime. The same AudioContext
    * start time drives the buffer source and GNM coarticulation clock.
    */
-  async playLocalPcm(
+  /**
+   * Expensive local-PCM preparation (buffer upload, phoneme timeline, acoustic
+   * analysis) decoupled from playback state. The conversational TTS queue
+   * pre-runs synthesis of clause N+1 during playback of clause N; preparing
+   * the AudioBuffer at that stage removes the work from the inter-clause gap.
+   */
+  async prepareLocalPcm(
     pcm: Float32Array,
     sampleRate: number,
     text: string,
     localPhonemes: KokoroPhonemeInput,
     voice: SyntheticVoiceDisclosure = LOCAL_KOKORO_VOICE,
     options: LocalPcmPlaybackOptions = {},
-  ): Promise<PreparedSpeech> {
+  ): Promise<PreparedLocalSpeech> {
     const requestedText = normalizeText(text);
     if (!requestedText) {
       throw new SpeechControllerError('Enter a phrase to speak.', 'INVALID_TEXT');
@@ -465,9 +476,9 @@ export class SpeechController {
       );
     }
 
-    this.requestAudioUnlock();
-    const operation = this.beginOperation('loading');
+    let buffer: AudioBuffer;
     try {
+<<<<<<< Updated upstream
       let buffer: AudioBuffer;
       try {
         buffer = this.context.createBuffer(1, pcmCopy.length, sampleRate);
@@ -481,8 +492,22 @@ export class SpeechController {
           'The local speech PCM could not be prepared for playback.',
           'INVALID_PCM',
         );
+=======
+      buffer = this.context.createBuffer(1, pcmCopy.length, sampleRate);
+      if (typeof buffer.copyToChannel === 'function') {
+        buffer.copyToChannel(pcmCopy, 0);
+      } else {
+        buffer.getChannelData(0).set(pcmCopy);
+>>>>>>> Stashed changes
       }
+    } catch {
+      throw new SpeechControllerError(
+        '本地语音 PCM 无法准备播放。',
+        'INVALID_PCM',
+      );
+    }
 
+<<<<<<< Updated upstream
       const durationSeconds = pcmCopy.length / sampleRate;
       let phonemes: PhonemeInterval[];
       try {
@@ -512,6 +537,36 @@ export class SpeechController {
         ? analyzeDecodedSpeechWithoutRetiming(buffer, phonemes)
         : analyzeDecodedSpeech(buffer, phonemes);
       const decoded: DecodedSpeech = {
+=======
+    const durationSeconds = pcmCopy.length / sampleRate;
+    let phonemes: PhonemeInterval[];
+    try {
+      const timingInput = options.timingMode === 'heuristic' && Array.isArray(localPhonemes)
+        ? localPhonemes.map((interval) => interval.phone).join(' ')
+        : localPhonemes;
+      phonemes = resolveKokoroPhonemeIntervals(
+        timingInput,
+        durationSeconds,
+        requestedText,
+        voice.voiceId === LOCAL_KOKORO_VOICE.voiceId
+          ? 'estimated-from-kokoro-phonemes'
+          : 'estimated-from-local-phonemes',
+      );
+    } catch (error) {
+      throw new SpeechControllerError(
+        error instanceof Error
+          ? `本地音素无效:${error.message}`
+          : '本地音素无效。',
+        'INVALID_PCM',
+      );
+    }
+    const timingMode = options.timingMode ?? 'auto';
+    const analysis = timingMode === 'native' || timingMode === 'heuristic'
+      ? analyzeDecodedSpeechWithoutRetiming(buffer, phonemes)
+      : analyzeDecodedSpeech(buffer, phonemes);
+    return {
+      decoded: {
+>>>>>>> Stashed changes
         prepared: {
           requestedText,
           spokenText: requestedText,
@@ -524,7 +579,16 @@ export class SpeechController {
         acousticFrames: analysis.acousticFrames,
         performanceIntent: options.performanceIntent,
         performanceUserText: options.performanceUserText,
-      };
+      },
+    };
+  }
+
+  /** Start playback of a payload produced by {@link prepareLocalPcm}. */
+  async playPreparedLocal(prepared: PreparedLocalSpeech): Promise<PreparedSpeech> {
+    const decoded = prepared.decoded;
+    this.requestAudioUnlock();
+    const operation = this.beginOperation('loading');
+    try {
       this.decoded = decoded;
       this.engine = new CoarticulationEngine(
         this.context,
@@ -539,13 +603,29 @@ export class SpeechController {
       const controllerError = error instanceof SpeechControllerError
         ? error
         : new SpeechControllerError(
+<<<<<<< Updated upstream
           'Local speech playback failed.',
+=======
+          '本地语音播放失败。',
+>>>>>>> Stashed changes
           'INVALID_PCM',
         );
       this.error = controllerError;
       this.setState('error');
       throw controllerError;
     }
+  }
+
+  async playLocalPcm(
+    pcm: Float32Array,
+    sampleRate: number,
+    text: string,
+    localPhonemes: KokoroPhonemeInput,
+    voice: SyntheticVoiceDisclosure = LOCAL_KOKORO_VOICE,
+    options: LocalPcmPlaybackOptions = {},
+  ): Promise<PreparedSpeech> {
+    const prepared = await this.prepareLocalPcm(pcm, sampleRate, text, localPhonemes, voice, options);
+    return this.playPreparedLocal(prepared);
   }
 
   async replay(): Promise<PreparedSpeech> {
@@ -687,7 +767,7 @@ export class SpeechController {
     const source = this.context.createBufferSource();
     source.buffer = decoded.buffer;
     source.connect(this.context.destination);
-    const startAt = this.context.currentTime + 0.045;
+    const startAt = this.context.currentTime + 0.02;
     source.onended = () => {
       if (this.source !== source || operation !== this.operation) return;
       this.stoppedAtSeconds = decoded.buffer.duration;
