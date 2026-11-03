@@ -87,9 +87,9 @@ faceBgCanvas.height = FACE_H;
 {
   const bgCtx = faceBgCanvas.getContext('2d')!;
   const sg = bgCtx.createLinearGradient(0, 0, 0, FACE_H);
-  sg.addColorStop(0, '#1a36a8');
-  sg.addColorStop(0.55, '#142674');
-  sg.addColorStop(1, '#070f38');
+  sg.addColorStop(0, '#ff9d0d');
+  sg.addColorStop(0.55, '#ffc021');
+  sg.addColorStop(1, '#ffd44f');
   bgCtx.fillStyle = sg;
   bgCtx.fillRect(0, 0, FACE_W, FACE_H);
 }
@@ -102,9 +102,9 @@ function drawFace(): void {
 
   ctx.setTransform(0.6, 0, 0, 0.72, (0.62 - 0.5 * 0.6) * FACE_W, 0.28 * FACE_H);
 
-  const glow = '#c4f0ff';
+  const glow = '#fff0a8';
   const gradient = ctx.createLinearGradient(0, FACE_H * 0.15, 0, FACE_H * 0.85);
-  gradient.addColorStop(0, '#5fb4ff');
+  gradient.addColorStop(0, '#fff8d0');
   gradient.addColorStop(1, glow);
   ctx.fillStyle = gradient;
   ctx.strokeStyle = gradient;

@@ -129,8 +129,8 @@ export class IpAvatar {
   };
   private readonly partMeshes = new Map<CustomizePart, THREE.Mesh[]>();
   private readonly baseColors = new Map<THREE.Material, THREE.Color>();
-  private faceGlowTop = '#5fb4ff';
-  private faceGlowBottom = '#c4f0ff';
+  private faceGlowTop = '#fff8d0';
+  private faceGlowBottom = '#fff0a8';
   private readonly stickers: Record<FaceSticker, boolean> = { blush: false, sparkle: false };
   private faceDirty = true;
   private lastFaceDrawMs = -Infinity;
@@ -221,6 +221,14 @@ export class IpAvatar {
               material.metalness = Math.min(material.metalness, 0.2);
               material.roughness = Math.max(material.roughness, 0.6);
               if (material.transparent) material.depthWrite = true;
+              // Brand palette: cyan/lavender accents (torso stripes, wrist/leg
+              // rings, antenna details, ear glow) ship bluish in the GLB —
+              // shift the whole accent family to the reference honey yellow.
+              const hsl = { h: 0, s: 0, l: 0 };
+              material.color.getHSL(hsl);
+              if (hsl.s > 0.2 && hsl.h > 0.42 && hsl.h < 0.78) {
+                material.color.set('#ffc21a');
+              }
             }
           }
         }
@@ -335,6 +343,17 @@ export class IpAvatar {
       src.name = '翅膀-左';
       halfR.name = '翅膀-右';
       src.parent!.add(halfR);
+      // Wings read as soft honey-yellow translucent plates in the reference;
+      // clone the materials so the tint never leaks onto other white parts.
+      const cloneWingMats = (mat: THREE.Material | THREE.Material[]): THREE.Material[] =>
+        (Array.isArray(mat) ? mat : [mat]).map((m) => m.clone());
+      const matsL = cloneWingMats(src.material);
+      const matsR = cloneWingMats(halfR.material);
+      src.material = Array.isArray(src.material) ? matsL : matsL[0];
+      halfR.material = Array.isArray(halfR.material) ? matsR : matsR[0];
+      for (const m of [...matsL, ...matsR]) {
+        if (m instanceof THREE.MeshStandardMaterial) m.color.set('#ffd75e');
+      }
 
       // Each wing hinges on a vertical axis through the middle of its own
       // inner edge: the root stays fixed and both tips sweep forward/back in
@@ -775,8 +794,8 @@ export class IpAvatar {
   }
 
   setFaceGlowColor(which: 'top' | 'bottom', color: string | null): void {
-    if (which === 'top') this.faceGlowTop = color ?? '#5fb4ff';
-    else this.faceGlowBottom = color ?? '#c4f0ff';
+    if (which === 'top') this.faceGlowTop = color ?? '#fff8d0';
+    else this.faceGlowBottom = color ?? '#fff0a8';
     this.faceDirty = true;
   }
 
@@ -808,9 +827,9 @@ export class IpAvatar {
       bg.height = H;
       const bgCtx = bg.getContext('2d')!;
       const screenGradient = bgCtx.createLinearGradient(0, 0, 0, H);
-      screenGradient.addColorStop(0, '#1a36a8');
-      screenGradient.addColorStop(0.55, '#142674');
-      screenGradient.addColorStop(1, '#070f38');
+      screenGradient.addColorStop(0, '#ff9d0d');
+      screenGradient.addColorStop(0.55, '#ffc021');
+      screenGradient.addColorStop(1, '#ffd44f');
       bgCtx.fillStyle = screenGradient;
       bgCtx.fillRect(0, 0, W, H);
       this.faceBgCanvas = bg;
