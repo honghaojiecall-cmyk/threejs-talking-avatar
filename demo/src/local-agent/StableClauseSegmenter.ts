@@ -6,7 +6,8 @@ export interface StableClauseSegmenterOptions {
 }
 
 const DEFAULT_MAX_CLAUSE_CHARACTERS = 180;
-const CLOSING_PUNCTUATION = new Set(['"', "'", '”', '’', ')', ']', '}']);
+const CLOSING_PUNCTUATION = new Set(['"', "'", '”', '’', ')', ']', '}', '」', '』', '）', '】', '》']);
+const CJK_TERMINAL_PUNCTUATION = new Set(['。', '！', '？', '；']);
 const COMMON_ABBREVIATIONS = new Set([
   'dr',
   'mr',
@@ -98,12 +99,15 @@ export class StableClauseSegmenter {
 
     let boundary = -1;
     for (let index = minimumCharacters - 1; index < this.buffer.length; index += 1) {
-      if (!',—–'.includes(this.buffer[index])) continue;
+      const character = this.buffer[index];
+      if (!',—–，、'.includes(character)) continue;
       let cursor = index + 1;
       while (cursor < this.buffer.length && CLOSING_PUNCTUATION.has(this.buffer[cursor])) {
         cursor += 1;
       }
-      if (cursor < this.buffer.length && /\s/u.test(this.buffer[cursor])) {
+      if ('，、'.includes(character)) {
+        boundary = cursor;
+      } else if (cursor < this.buffer.length && /\s/u.test(this.buffer[cursor])) {
         boundary = cursor + 1;
       }
     }
@@ -150,6 +154,17 @@ export class StableClauseSegmenter {
       const character = this.buffer[index];
 
       if (character === '\n') return index + 1;
+
+      if (CJK_TERMINAL_PUNCTUATION.has(character)) {
+        let cursor = index + 1;
+        while (
+          cursor < this.buffer.length &&
+          CLOSING_PUNCTUATION.has(this.buffer[cursor])
+        ) {
+          cursor += 1;
+        }
+        return cursor;
+      }
 
       if ('.?!;:'.includes(character) && !this.isFalseBoundary(index)) {
         let cursor = index + 1;

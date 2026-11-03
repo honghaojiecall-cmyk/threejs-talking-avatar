@@ -1,10 +1,7 @@
 import {
   LOCAL_KITTEN_VOICE,
-<<<<<<< Updated upstream
-=======
   LOCAL_KOKORO_VOICE,
   LOCAL_PIPER_ZH_VOICE,
->>>>>>> Stashed changes
   LOCAL_SUPERTONIC_VOICE,
   type LocalLipSyncMode,
   type PreparedSpeech,
@@ -269,6 +266,30 @@ export class BrowserLocalAgent {
     return this.agent.submitTranscript(transcript);
   }
 
+  /**
+   * Speaks a fixed phrase through the installed local TTS outside the
+   * conversational turn pipeline (used for the automatic greeting).
+   */
+  async speakPhrase(text: string, signal?: AbortSignal): Promise<void> {
+    const controller = new AbortController();
+    const onAbort = (): void => controller.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      const synthesis = await this.tts.synthesize(text);
+      throwIfAborted(controller.signal);
+      await this.playSynthesis({
+        turnId: 0,
+        requestId: 0,
+        text,
+        synthesis,
+        signal: controller.signal,
+        onProgress: () => undefined,
+      });
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
+  }
+
   /** Updates only the articulation timing policy; loaded model workers stay resident. */
   setLipSyncMode(mode: LocalLipSyncMode): void {
     this.modelRequest.lipSyncMode = mode;
@@ -359,24 +380,6 @@ export class BrowserLocalAgent {
     let reportedAudioStart = false;
     for (const chunk of request.synthesis.chunks) {
       throwIfAborted(request.signal);
-<<<<<<< Updated upstream
-      prepared = await this.speech.playLocalPcm(
-        chunk.audio,
-        chunk.sampleRate,
-        chunk.text,
-        chunk.phonemes,
-        request.synthesis.engine === 'supertonic-2'
-          ? LOCAL_SUPERTONIC_VOICE
-          : request.synthesis.engine === 'kitten-tts-nano'
-            ? LOCAL_KITTEN_VOICE
-            : undefined,
-        {
-          timingMode: this.modelRequest.lipSyncMode ?? 'auto',
-          performanceIntent: request.performanceIntent,
-          performanceUserText: request.performanceUserText,
-        },
-      );
-=======
       prepared = chunk.prepared
         ? await this.speech.playPreparedLocal(chunk.prepared)
         : await this.speech.playLocalPcm(
@@ -391,7 +394,6 @@ export class BrowserLocalAgent {
             performanceUserText: request.performanceUserText,
           },
         );
->>>>>>> Stashed changes
       if (!reportedAudioStart) {
         reportedAudioStart = true;
         this.callbacks.onMetric?.({

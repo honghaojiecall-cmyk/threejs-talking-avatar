@@ -6,6 +6,10 @@ import {
 import { KokoroRuntime } from './KokoroRuntime';
 import type { LocalTtsSynthesisResult } from './LocalTtsTypes';
 import {
+  isPiperTtsModelId,
+  PiperZhTtsRuntime,
+} from './PiperZhTtsRuntime';
+import {
   isSupertonicModelId,
   SupertonicRuntime,
 } from './SupertonicRuntime';
@@ -18,6 +22,7 @@ import type { WorkerProgress } from './RpcWorkerClient';
 type ActiveRuntime =
   | KittenTtsRuntime
   | KokoroRuntime
+  | PiperZhTtsRuntime
   | SupertonicRuntime
   | TimestampedKokoroRuntime;
 
@@ -30,7 +35,11 @@ export class LocalTtsRuntime {
     onProgress?: (progress: WorkerProgress) => void,
   ): Promise<void> {
     await this.active?.dispose();
-    if (isKittenTtsModelId(modelId)) {
+    if (isPiperTtsModelId(modelId)) {
+      const next = new PiperZhTtsRuntime();
+      this.active = next;
+      await next.load(modelId, onProgress);
+    } else if (isKittenTtsModelId(modelId)) {
       const next = new KittenTtsRuntime();
       this.active = next;
       await next.load(modelId, onProgress);

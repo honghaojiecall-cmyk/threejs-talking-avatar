@@ -29,9 +29,17 @@ interface AsrPipeline {
 }
 
 const MODEL_REPOSITORIES: Record<SpeechToTextModelId, string> = {
+  'qwen3-asr-0.6b-api': '',
+  'whisper-small-multilingual-q8': 'onnx-community/whisper-small',
+  'whisper-tiny-multilingual-q8': 'onnx-community/whisper-tiny',
   'moonshine-tiny-q8': 'onnx-community/moonshine-tiny-ONNX',
   'whisper-tiny-en-q8': 'onnx-community/whisper-tiny.en',
 };
+
+const MULTILINGUAL_MODELS = new Set<SpeechToTextModelId>([
+  'whisper-small-multilingual-q8',
+  'whisper-tiny-multilingual-q8',
+]);
 
 if (env.backends.onnx.wasm) {
   env.backends.onnx.wasm.wasmPaths = ONNX_WASM_BASE_URL;
@@ -50,9 +58,11 @@ async function loadModel(id: number, payload: LoadPayload): Promise<void> {
   }
   await transcriber?.dispose?.();
   transcriber = null;
+  const repository = MODEL_REPOSITORIES[payload.modelId];
+  if (!repository) throw new Error('API-hosted speech models do not run in the local worker.');
   const model = await pipeline(
     'automatic-speech-recognition',
-    MODEL_REPOSITORIES[payload.modelId],
+    repository,
     {
       device: 'wasm',
       dtype: 'q8',
@@ -72,9 +82,11 @@ async function transcribe(id: number, payload: TranscribePayload): Promise<void>
     throw new Error('Speech recognition received no microphone audio.');
   }
   const startedAt = performance.now();
+  const multilingual = loadedModel !== null && MULTILINGUAL_MODELS.has(loadedModel);
   const result = await transcriber(payload.audio, {
     sampling_rate: payload.sampleRate,
-    return_timestamps: loadedModel === 'whisper-tiny-en-q8',
+    return_timestamps: loadedModel !== 'moonshine-tiny-q8',
+    ...(multilingual ? { language: 'chinese', task: 'transcribe' } : {}),
   });
   postWorkerResult(id, {
     text: result.text.trim(),

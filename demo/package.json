@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/copy-local-model-assets.mjs",
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host",
     "build": "tsc && vite build",
-    "preview": "vite preview --host 127.0.0.1",
+    "preview": "vite preview --host",
     "test": "playwright test",
     "test:unit": "tsx --test tests/unit/*.test.ts",
     "verify:visual": "playwright test tests/visual.spec.ts",
@@ -20,14 +20,17 @@
   "dependencies": {
     "@huggingface/transformers": "4.1.0",
     "@litert-lm/core": "^0.14.0",
+    "@mintplex-labs/piper-tts-web": "^1.0.5",
     "@mlc-ai/web-llm": "0.2.84",
     "@ricky0123/vad-web": "0.0.30",
     "kokoro-js": "1.2.1",
     "onnxruntime-web": "1.25.0-dev.20260212-1a71a5f46e",
     "phonemizer": "^1.2.1",
+    "pinyin-pro": "^3.29.5",
     "three": "^0.184.0"
   },
   "devDependencies": {
+    "@diffusionstudio/piper-wasm": "^1.0.0",
     "@gltf-transform/core": "4.4.1",
     "@gltf-transform/extensions": "4.4.1",
     "@gltf-transform/functions": "^4.4.1",

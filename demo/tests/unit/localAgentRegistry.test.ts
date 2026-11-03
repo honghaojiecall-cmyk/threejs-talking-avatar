@@ -4,6 +4,7 @@ import {
   LANGUAGE_MODELS,
   LOCAL_MODELS,
   SAFE_DEFAULT_MODEL_SELECTION,
+  SPEECH_TO_TEXT_MODELS,
   TEXT_TO_SPEECH_MODELS,
   getLocalModelsByKind,
   mayAutomaticallyDownload,
@@ -35,9 +36,9 @@ function capableBrowser(): BrowserCapabilitySnapshot {
 
 test('registry has unique typed models and one safe default per agent role', () => {
   assert.equal(new Set(LOCAL_MODELS.map((model) => model.id)).size, LOCAL_MODELS.length);
-  assert.equal(getLocalModelsByKind('stt').length, 2);
-  assert.equal(getLocalModelsByKind('llm').length, 7);
-  assert.equal(getLocalModelsByKind('tts').length, 7);
+  assert.equal(getLocalModelsByKind('stt').length, 5);
+  assert.equal(getLocalModelsByKind('llm').length, 8);
+  assert.equal(getLocalModelsByKind('tts').length, 8);
   assert.deepEqual(SAFE_DEFAULT_MODEL_SELECTION, {
     stt: 'moonshine-tiny-q8',
     llm: 'qwen2.5-0.5b-instruct-q4f16',
@@ -105,6 +106,38 @@ test('KittenTTS Nano is an explicit tiny comparison voice with a CPU fallback', 
   assert.equal(mayAutomaticallyDownload(kitten.id), false);
   assert.ok(kitten.backends.some((backend) => backend.execution === 'webgpu'));
   assert.ok(kitten.backends.some((backend) => backend.execution === 'wasm'));
+});
+
+test('Kimi K3 cloud API brain needs no download and works without WebGPU', () => {
+  const kimi = LANGUAGE_MODELS['kimi-k3-256k-api'];
+  assert.equal(kimi.backends[0].runtime, 'openai-api');
+  assert.equal(kimi.artifact.estimatedDownloadBytes, 0);
+
+  const capabilities = capableBrowser();
+  capabilities.webgpu.adapterAvailable = false;
+  capabilities.webgpu.shaderF16 = false;
+  const selected = selectLocalAgentModels(capabilities, { llm: kimi.id });
+  assert.equal(selected.selection.llm, kimi.id);
+});
+
+test('Chinese path: multilingual Whisper and Piper Mandarin are WASM safe defaults', () => {
+  const whisper = SPEECH_TO_TEXT_MODELS['whisper-tiny-multilingual-q8'];
+  const piper = TEXT_TO_SPEECH_MODELS['piper-zh-huayan-medium-wasm'];
+  assert.equal(whisper.languageSupport, 'multilingual');
+  assert.equal(piper.backends[0].runtime, 'piper-wasm');
+
+  const capabilities = capableBrowser();
+  capabilities.webgpu.adapterAvailable = false;
+  capabilities.webgpu.shaderF16 = false;
+  const selected = selectLocalAgentModels(capabilities, {
+    stt: whisper.id,
+    llm: 'kimi-k3-256k-api',
+    tts: piper.id,
+  });
+  assert.equal(selected.selection.stt, whisper.id);
+  assert.equal(selected.selection.llm, 'kimi-k3-256k-api');
+  assert.equal(selected.selection.tts, piper.id);
+  assert.equal(selected.readyToResolveArtifacts, true);
 });
 
 test('a browser without WebGPU keeps WASM speech models but blocks the LLM', () => {

@@ -27,8 +27,8 @@ export class VadRuntime {
         onnxWASMBasePath: ONNX_WASM_BASE_URL,
         positiveSpeechThreshold: 0.82,
         negativeSpeechThreshold: 0.38,
-        redemptionMs: 560,
-        preSpeechPadMs: 220,
+        redemptionMs: 1200,
+        preSpeechPadMs: 300,
         minSpeechMs: 180,
         submitUserSpeechOnPause: true,
         getStream: () => navigator.mediaDevices.getUserMedia({

@@ -33,7 +33,7 @@ import type {
 
 export const LOCAL_KOKORO_VOICE: SyntheticVoiceDisclosure = Object.freeze({
   voiceId: 'kokoro-local',
-  displayName: 'Local Kokoro synthetic voice',
+  displayName: '本地 Kokoro 合成语音',
   premade: true,
   historicalVoiceClone: false,
   synthetic: true,
@@ -41,7 +41,7 @@ export const LOCAL_KOKORO_VOICE: SyntheticVoiceDisclosure = Object.freeze({
 
 export const LOCAL_SUPERTONIC_VOICE: SyntheticVoiceDisclosure = Object.freeze({
   voiceId: 'supertonic-2-m1-local',
-  displayName: 'Local Supertonic 2 M1 synthetic voice',
+  displayName: '本地 Supertonic 2 M1 合成语音',
   premade: true,
   historicalVoiceClone: false,
   synthetic: true,
@@ -49,7 +49,15 @@ export const LOCAL_SUPERTONIC_VOICE: SyntheticVoiceDisclosure = Object.freeze({
 
 export const LOCAL_KITTEN_VOICE: SyntheticVoiceDisclosure = Object.freeze({
   voiceId: 'kitten-tts-nano-jasper-local',
-  displayName: 'Local KittenTTS Nano Jasper synthetic voice',
+  displayName: '本地 KittenTTS Nano Jasper 合成语音',
+  premade: true,
+  historicalVoiceClone: false,
+  synthetic: true,
+});
+
+export const LOCAL_PIPER_ZH_VOICE: SyntheticVoiceDisclosure = Object.freeze({
+  voiceId: 'piper-zh-huayan-local',
+  displayName: '本地 Piper 普通话 Huayan 合成语音',
   premade: true,
   historicalVoiceClone: false,
   synthetic: true,
@@ -57,11 +65,11 @@ export const LOCAL_KITTEN_VOICE: SyntheticVoiceDisclosure = Object.freeze({
 
 export const SPEECH_DISCLOSURE = Object.freeze({
   voice:
-    'The performance uses synthetic voices selected by the visitor. It is not a voice clone or an imitation of a real person.',
+    '本演示使用的是由访问者选择的合成语音,不是声音克隆,也不是对任何真实人物的模仿。',
   timing:
-    'Speech audio includes provider character timestamps. IPA boundaries are deterministically refined from decoded waveform energy, voicing, and transients; this is not acoustic forced-alignment or a learned animation model.',
+    '语音音频包含提供方的字符级时间戳。IPA 边界由解码波形的能量、浊音与瞬态确定性精修而来;这不是声学强制对齐,也不是学习式动画模型。',
   animation:
-    'Lip, jaw, and tongue motion uses an anatomically informed compact viseme rig with coarticulation and contact constraints; it is a reusable animation model, not motion captured from a person.',
+    '唇、下颌与舌的运动使用解剖学启发的紧凑型视位绑定,带协同发音与接触约束;它是可复用的动画模型,并非从真人动捕而来。',
 });
 
 export type SpeechControllerState =
@@ -301,9 +309,8 @@ export class SpeechController {
         .webkitAudioContext;
     if (!options.audioContext && !AudioContextConstructor) {
       throw new SpeechControllerError(
-        'This browser does not support Web Audio.',
-        'AUDIO_DECODE_FAILED',
-      );
+        '此浏览器不支持 Web Audio。',
+        'AUDIO_DECODE_FAILED',      );
     }
     this.context = options.audioContext ?? new AudioContextConstructor!();
     this.performance = new ExpressivePerformanceController(this.context);
@@ -339,6 +346,7 @@ export class SpeechController {
 
   /** Executes a semantic physical action selected by the local LLM. */
   performAction(action: PerformanceAction): void {
+    this.requestAudioUnlock();
     this.performance.performAction(action);
   }
 
@@ -392,7 +400,7 @@ export class SpeechController {
   async speak(text: string): Promise<PreparedSpeech> {
     const requestedText = normalizeText(text);
     if (!requestedText) {
-      throw new SpeechControllerError('Enter a phrase to speak.', 'INVALID_TEXT');
+      throw new SpeechControllerError('请输入要朗读的短语。', 'INVALID_TEXT');
     }
 
     // Invoke resume while the caller's click/keypress still owns user
@@ -418,7 +426,7 @@ export class SpeechController {
       const controllerError =
         error instanceof SpeechControllerError
           ? error
-          : new SpeechControllerError('Speech playback failed.', 'REQUEST_FAILED');
+          : new SpeechControllerError('语音播放失败。', 'REQUEST_FAILED');
       this.error = controllerError;
       this.setState('error');
       throw controllerError;
@@ -445,7 +453,7 @@ export class SpeechController {
   ): Promise<PreparedLocalSpeech> {
     const requestedText = normalizeText(text);
     if (!requestedText) {
-      throw new SpeechControllerError('Enter a phrase to speak.', 'INVALID_TEXT');
+      throw new SpeechControllerError('请输入要朗读的短语。', 'INVALID_TEXT');
     }
     if (
       !(pcm instanceof Float32Array) ||
@@ -454,14 +462,14 @@ export class SpeechController {
       sampleRate <= 0
     ) {
       throw new SpeechControllerError(
-        'Local speech must provide non-empty mono Float32 PCM and a valid sample rate.',
+        '本地语音必须提供非空的单声道 Float32 PCM 和有效的采样率。',
         'INVALID_PCM',
       );
     }
     for (const sample of pcm) {
       if (!Number.isFinite(sample)) {
         throw new SpeechControllerError(
-          'Local speech PCM contains a non-finite sample.',
+          '本地语音 PCM 包含非法采样值。',
           'INVALID_PCM',
         );
       }
@@ -471,34 +479,18 @@ export class SpeechController {
     const pcmCopy = new Float32Array(pcm);
     if (!isSyntheticVoice(voice)) {
       throw new SpeechControllerError(
-        'Local speech must identify a disclosed synthetic voice.',
+        '本地语音必须标识一个已披露的合成语音。',
         'INVALID_PCM',
       );
     }
 
     let buffer: AudioBuffer;
     try {
-<<<<<<< Updated upstream
-      let buffer: AudioBuffer;
-      try {
-        buffer = this.context.createBuffer(1, pcmCopy.length, sampleRate);
-        if (typeof buffer.copyToChannel === 'function') {
-          buffer.copyToChannel(pcmCopy, 0);
-        } else {
-          buffer.getChannelData(0).set(pcmCopy);
-        }
-      } catch {
-        throw new SpeechControllerError(
-          'The local speech PCM could not be prepared for playback.',
-          'INVALID_PCM',
-        );
-=======
       buffer = this.context.createBuffer(1, pcmCopy.length, sampleRate);
       if (typeof buffer.copyToChannel === 'function') {
         buffer.copyToChannel(pcmCopy, 0);
       } else {
         buffer.getChannelData(0).set(pcmCopy);
->>>>>>> Stashed changes
       }
     } catch {
       throw new SpeechControllerError(
@@ -507,37 +499,6 @@ export class SpeechController {
       );
     }
 
-<<<<<<< Updated upstream
-      const durationSeconds = pcmCopy.length / sampleRate;
-      let phonemes: PhonemeInterval[];
-      try {
-        const timingInput = options.timingMode === 'heuristic' && Array.isArray(localPhonemes)
-          ? localPhonemes.map((interval) => interval.phone).join(' ')
-          : localPhonemes;
-        phonemes = resolveKokoroPhonemeIntervals(
-          timingInput,
-          durationSeconds,
-          requestedText,
-          voice.voiceId === LOCAL_KOKORO_VOICE.voiceId
-            ? 'estimated-from-kokoro-phonemes'
-            : 'estimated-from-local-phonemes',
-        );
-      } catch (error) {
-        throw new SpeechControllerError(
-          error instanceof Error
-            ? `Invalid local phonemes: ${error.message}`
-            : 'Invalid local phonemes.',
-          'INVALID_PCM',
-        );
-      }
-
-      this.assertCurrent(operation);
-      const timingMode = options.timingMode ?? 'auto';
-      const analysis = timingMode === 'native' || timingMode === 'heuristic'
-        ? analyzeDecodedSpeechWithoutRetiming(buffer, phonemes)
-        : analyzeDecodedSpeech(buffer, phonemes);
-      const decoded: DecodedSpeech = {
-=======
     const durationSeconds = pcmCopy.length / sampleRate;
     let phonemes: PhonemeInterval[];
     try {
@@ -566,7 +527,6 @@ export class SpeechController {
       : analyzeDecodedSpeech(buffer, phonemes);
     return {
       decoded: {
->>>>>>> Stashed changes
         prepared: {
           requestedText,
           spokenText: requestedText,
@@ -603,11 +563,7 @@ export class SpeechController {
       const controllerError = error instanceof SpeechControllerError
         ? error
         : new SpeechControllerError(
-<<<<<<< Updated upstream
-          'Local speech playback failed.',
-=======
           '本地语音播放失败。',
->>>>>>> Stashed changes
           'INVALID_PCM',
         );
       this.error = controllerError;
@@ -631,7 +587,7 @@ export class SpeechController {
   async replay(): Promise<PreparedSpeech> {
     if (!this.decoded) {
       throw new SpeechControllerError(
-        'Generate speech before replaying.',
+        '请先生成语音,再重播。',
         'NO_PREPARED_SPEECH',
       );
     }
@@ -696,8 +652,8 @@ export class SpeechController {
       }
       throw new SpeechControllerError(
         error instanceof DOMException && error.name === 'AbortError'
-          ? 'Speech generation was cancelled.'
-          : 'Direct speech generation is unavailable.',
+          ? '语音生成已取消。'
+          : '直接语音生成不可用。',
         'REQUEST_FAILED',
       );
     } finally {
@@ -707,7 +663,7 @@ export class SpeechController {
     this.assertCurrent(operation);
     if (!isSpeechPayload(body)) {
       throw new SpeechControllerError(
-        'Direct speech returned invalid timing data.',
+        '直接语音返回了无效的时序数据。',
         'INVALID_RESPONSE',
       );
     }
@@ -737,7 +693,7 @@ export class SpeechController {
     } catch {
       this.assertCurrent(operation);
       throw new SpeechControllerError(
-        'The generated audio could not be decoded.',
+        '生成的音频无法解码。',
         'AUDIO_DECODE_FAILED',
       );
     }
@@ -747,7 +703,7 @@ export class SpeechController {
     const decoded = this.decoded;
     const engine = this.engine;
     if (!decoded || !engine) {
-      throw new SpeechControllerError('No speech is ready.', 'NO_PREPARED_SPEECH');
+      throw new SpeechControllerError('没有已就绪的语音。', 'NO_PREPARED_SPEECH');
     }
 
     if (this.context.state === 'suspended') {
@@ -757,7 +713,7 @@ export class SpeechController {
       ]);
       if (this.context.state === 'suspended') {
         throw new SpeechControllerError(
-          'Audio playback is blocked by the browser. Press Replay to allow sound.',
+          '浏览器阻止了音频播放。请按“重播”以允许声音。',
           'AUDIO_DECODE_FAILED',
         );
       }
@@ -824,7 +780,7 @@ export class SpeechController {
 
   private assertCurrent(operation: number): void {
     if (operation !== this.operation) {
-      throw new SpeechControllerError('Speech generation was cancelled.', 'REQUEST_FAILED');
+      throw new SpeechControllerError('语音生成已取消。', 'REQUEST_FAILED');
     }
   }
 

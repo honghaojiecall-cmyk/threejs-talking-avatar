@@ -30,13 +30,13 @@ test('stores, masks, reads, and clears the BYOK credential under one namespaced 
   assert.equal(key, 'example-api-key-1234');
   assert.equal(storage.getItem(ELEVENLABS_API_KEY_STORAGE_KEY), key);
   assert.equal(getStoredElevenLabsApiKey(storage), key);
-  assert.equal(maskElevenLabsApiKey(key), 'stored locally');
+  assert.equal(maskElevenLabsApiKey(key), '已保存到本地');
   clearStoredElevenLabsApiKey(storage);
   assert.equal(getStoredElevenLabsApiKey(storage), null);
 });
 
 test('rejects blank or whitespace-containing keys', () => {
   const storage = new MemoryStorage();
-  assert.throws(() => storeElevenLabsApiKey('   ', storage), /Enter an ElevenLabs/u);
-  assert.throws(() => storeElevenLabsApiKey('bad key', storage), /unsupported/u);
+  assert.throws(() => storeElevenLabsApiKey('   ', storage), /请输入 ElevenLabs/u);
+  assert.throws(() => storeElevenLabsApiKey('bad key', storage), /不支持的字符/u);
 });

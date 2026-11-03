@@ -320,8 +320,8 @@ test('timestamped Kokoro timing keeps its audio clock while the beaches reply pe
 });
 
 test('public disclosure explicitly distinguishes synthesis and timing estimates', () => {
-  assert.match(SPEECH_DISCLOSURE.voice, /synthetic voices/i);
-  assert.match(SPEECH_DISCLOSURE.voice, /not a voice clone/i);
-  assert.match(SPEECH_DISCLOSURE.voice, /not.*real person/i);
-  assert.match(SPEECH_DISCLOSURE.timing, /not acoustic forced-alignment/i);
+  assert.match(SPEECH_DISCLOSURE.voice, /合成语音/u);
+  assert.match(SPEECH_DISCLOSURE.voice, /不是声音克隆/u);
+  assert.match(SPEECH_DISCLOSURE.voice, /不是.*真实人物/u);
+  assert.match(SPEECH_DISCLOSURE.timing, /不是声学强制对齐/u);
 });

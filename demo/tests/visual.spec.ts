@@ -106,7 +106,7 @@ test('renders a nonblank fitted portrait and opens its evidence panel', async ({
   await expect(page.locator('#evidence-dialog')).toBeVisible();
   await expect(page.locator('#evidence-dialog .architecture-flow span')).toHaveCount(5);
   await expect(page.locator('#evidence-dialog')).toContainText('51');
-  await expect(page.locator('#evidence-dialog')).toContainText('without a learned animation model');
+  await expect(page.locator('#evidence-dialog')).toContainText('不依赖学习式动画模型');
   await page.locator('#close-evidence').click();
 
   const diagnostics = await page.evaluate(() => window.__GNM_AVATAR_DIAGNOSTICS__);
