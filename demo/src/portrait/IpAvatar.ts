@@ -109,9 +109,6 @@ function splitGeometryByWorldX(mesh: THREE.Mesh): { left: THREE.BufferGeometry; 
 }
 
 interface FacePose {
-  open: number;
-  wide: number;
-  round: number;
   smile: number;
   eyeOpen: number;
   gazeX: number;
@@ -178,9 +175,6 @@ export class IpAvatar {
   private readonly faceCtx: CanvasRenderingContext2D;
   private readonly faceTexture: THREE.CanvasTexture;
   private readonly facePose: FacePose = {
-    open: 0.06,
-    wide: 0.9,
-    round: 0.2,
     smile: 0.25,
     eyeOpen: 1,
     gazeX: 0,
@@ -769,27 +763,37 @@ export class IpAvatar {
   }
 
   private applyPose(pose: PoseTargets, deltaSeconds: number, elapsed: number): void {
-    const jaw = clamp(pose.jaw ?? 0);
-    const bilabial = clamp(pose.bilabial ?? 0);
-    const round = clamp(pose.round ?? 0) * (1 - bilabial * 0.5);
-    const stretch = clamp(pose.stretch ?? 0);
     const cornersUp = clamp(pose.cornersUp ?? 0) + clamp(pose.smile ?? 0) * 0.4;
     const cornersDown = clamp(pose.cornersDown ?? 0);
     const blink = clamp(pose.blink ?? 0);
     const squint = clamp(pose.squint ?? 0);
     const widen = clamp(pose.widen ?? 0);
+    // The face has no mouth: speech shows through the eyes and body instead.
+    // While speaking, the eyes blink on a soft rhythm and the gaze wanders a
+    // little, driven by the smoothed speech energy.
+    const speaking = clamp(this.speechEnergy * 1.4);
+    let speakBlink = 0;
+    if (speaking > 0.2) {
+      const cycle = (elapsed / 3.1) % 1;
+      if (cycle < 0.055) speakBlink = Math.sin((cycle / 0.055) * Math.PI) * speaking;
+    }
     const gazeX = THREE.MathUtils.clamp(
-      (pose.gazeX ?? 0) + (this.reducedMotion ? 0 : this.pointer.x * 0.35), -1, 1);
+      (pose.gazeX ?? 0)
+        + (speaking > 0.2 ? Math.sin(elapsed * 0.7) * 0.18 * speaking : 0)
+        + (this.reducedMotion ? 0 : this.pointer.x * 0.35),
+      -1, 1);
     const gazeY = THREE.MathUtils.clamp(
-      (pose.gazeY ?? 0) + (this.reducedMotion ? 0 : this.pointer.y * 0.25), -1, 1);
+      (pose.gazeY ?? 0)
+        + (speaking > 0.2 ? Math.cos(elapsed * 0.53) * 0.12 * speaking : 0)
+        + (this.reducedMotion ? 0 : this.pointer.y * 0.25),
+      -1, 1);
 
     const gestureSmile = this.performanceFrame?.diagnostics.actionGesture === 'smile' ? 1 : 0;
     const target: FacePose = {
-      open: clamp(jaw * (1 - bilabial)),
-      wide: 0.85 + stretch * 0.45 - round * 0.3,
-      round,
       smile: Math.max(clamp(0.2 + cornersUp - cornersDown * 0.8, 0), gestureSmile * 0.95),
-      eyeOpen: THREE.MathUtils.clamp(1 - blink - squint * 0.5 + widen * 0.25, 0.04, 1.25),
+      eyeOpen: THREE.MathUtils.clamp(
+        1 - Math.max(blink, speakBlink) - squint * 0.5 + widen * 0.25 + speaking * 0.08,
+        0.04, 1.25),
       gazeX,
       gazeY,
     };
@@ -808,7 +812,14 @@ export class IpAvatar {
   }
 
   private updateBody(pose: PoseTargets, deltaSeconds: number, elapsed: number): void {
-    const energyTarget = this.reducedMotion ? 0 : clamp((pose.jaw ?? 0) * 1.6);
+    // No mouth on the face, so body liveliness tracks overall articulation
+    // activity (not just jaw) — the arms keep swaying through lip closures.
+    const energyTarget = this.reducedMotion ? 0 : clamp(
+      (pose.jaw ?? 0) * 1.3
+        + (pose.bilabial ?? 0) * 0.9
+        + (pose.stretch ?? 0) * 0.7
+        + (pose.round ?? 0) * 0.7,
+    );
     this.speechEnergy = THREE.MathUtils.lerp(
       this.speechEnergy, energyTarget, 1 - Math.exp(-deltaSeconds * 8));
     const gesture = this.performanceFrame?.diagnostics.actionGesture;
@@ -1083,12 +1094,12 @@ export class IpAvatar {
     const pose = this.facePose;
     const gazeOffsetX = pose.gazeX * W * 0.03;
     const gazeOffsetY = -pose.gazeY * H * 0.04;
-    const eyeY = H * 0.38 + gazeOffsetY;
-    const eyeDX = W * 0.2;
-    const eyeW = W * 0.225;
-    const eyeH = H * 0.22 * Math.max(0.04, pose.eyeOpen);
+    const eyeY = H * 0.465 + gazeOffsetY;
+    const eyeDX = W * 0.31;
+    const eyeW = W * 0.33;
+    const eyeH = H * 0.39 * Math.max(0.04, pose.eyeOpen);
 
-    // Soft halo behind the eyes/mouth replaces per-rect shadowBlur (far cheaper).
+    // Soft halo behind the eyes replaces per-rect shadowBlur (far cheaper).
     ctx.globalAlpha = 0.32;
     for (const side of [-1, 1]) {
       const hx = cx + side * eyeDX + gazeOffsetX;
@@ -1098,12 +1109,6 @@ export class IpAvatar {
       ctx.fillStyle = halo;
       ctx.fillRect(hx - eyeW, eyeY - eyeW, eyeW * 2, eyeW * 2);
     }
-    const mouthY0 = H * 0.72 + gazeOffsetY * 0.4;
-    const mouthHalo = ctx.createRadialGradient(cx + gazeOffsetX, mouthY0, 0, cx + gazeOffsetX, mouthY0, W * 0.22);
-    mouthHalo.addColorStop(0, glow);
-    mouthHalo.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = mouthHalo;
-    ctx.fillRect(cx + gazeOffsetX - W * 0.22, mouthY0 - W * 0.22, W * 0.44, W * 0.44);
     ctx.globalAlpha = 1;
     ctx.fillStyle = gradient;
     ctx.strokeStyle = gradient;
@@ -1127,33 +1132,6 @@ export class IpAvatar {
       }
     }
 
-    const mouthY = mouthY0;
-    const mouthW = W * 0.2 * pose.wide * (1 - pose.round * 0.35);
-    const mouthH = H * 0.03 + H * 0.24 * pose.open * (1 - pose.round * 0.25);
-    const cornerLift = pose.smile * H * 0.06;
-    ctx.beginPath();
-    if (pose.open < 0.08) {
-      ctx.lineWidth = H * 0.035;
-      ctx.lineCap = 'round';
-      ctx.moveTo(cx - mouthW / 2 + gazeOffsetX, mouthY - cornerLift);
-      ctx.quadraticCurveTo(
-        cx + gazeOffsetX,
-        mouthY + H * 0.05 + cornerLift * 0.4,
-        cx + mouthW / 2 + gazeOffsetX,
-        mouthY - cornerLift,
-      );
-      ctx.stroke();
-    } else {
-      const r = Math.min(mouthW, mouthH) / 2 + pose.round * H * 0.06;
-      ctx.roundRect(
-        cx - mouthW / 2 + gazeOffsetX,
-        mouthY - mouthH / 2 - cornerLift * 0.3,
-        mouthW,
-        mouthH,
-        r,
-      );
-      ctx.fill();
-    }
     if (this.stickers.sparkle) {
       ctx.fillStyle = '#ffffff';
       const star = (sx: number, sy: number, r: number): void => {
