@@ -173,7 +173,7 @@ function drawFace(): void {
   faceTexture.needsUpdate = true;
 }
 
-const gltf = await new GLTFLoader().loadAsync('/assets/models/newip.glb');
+const gltf = await new GLTFLoader().loadAsync('/assets/models/%E9%BB%84%E7%89%88%E7%A7%91%E6%8A%80%E8%9C%82.gltf');
 const model = gltf.scene;
 model.scale.setScalar(0.01);
 scene.add(model);

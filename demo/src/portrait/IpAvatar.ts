@@ -10,9 +10,11 @@ import {
   type PoseTargets,
 } from './portraitPose';
 
-const MODEL_URL = '/assets/models/newip.glb';
+const MODEL_URL = '/assets/models/%E9%BB%84%E7%89%88%E7%A7%91%E6%8A%80%E8%9C%82.gltf';
 const HEAD_BONE_NAME = 'Head_00_jnt';
 const FACE_MESH_NAME = '空白1-Oc光泽21';
+/** Meshes that make up the honey-yellow accent set (stripes, wrist/leg rings). */
+const ACCENT_MESH_PREFIXES = ['球体-Oc光泽11', '扫描-Oc光泽11'];
 const FACE_CANVAS_W = 1024;
 const FACE_CANVAS_H = 720;
 const FACE_CENTER = new THREE.Vector3(0.024, 0.06, 0.418);
@@ -64,6 +66,48 @@ function clamp(value: number, max = 1): number {
   return THREE.MathUtils.clamp(value, 0, max);
 }
 
+/**
+ * Split a mesh's triangles into left/right geometries by the world-space x
+ * sign of each triangle's centroid. Component-safe for rigid props whose
+ * halves don't interleave (arms, wrist rings).
+ */
+function splitGeometryByWorldX(mesh: THREE.Mesh): { left: THREE.BufferGeometry; right: THREE.BufferGeometry } {
+  const geom = mesh.geometry;
+  const pos = geom.getAttribute('position');
+  const index = geom.getIndex();
+  const triCount = (index ? index.count : pos.count) / 3;
+  mesh.updateWorldMatrix(true, false);
+  const e = mesh.matrixWorld.elements;
+  const leftTris: number[] = [];
+  const rightTris: number[] = [];
+  for (let t = 0; t < triCount; t++) {
+    let sx = 0;
+    for (let k = 0; k < 3; k++) {
+      const vi = index ? index.getX(t * 3 + k) : t * 3 + k;
+      sx += e[0] * pos.getX(vi) + e[4] * pos.getY(vi) + e[8] * pos.getZ(vi) + e[12];
+    }
+    (sx / 3 < 0 ? leftTris : rightTris).push(t);
+  }
+  const build = (tris: number[]): THREE.BufferGeometry => {
+    const g = new THREE.BufferGeometry();
+    for (const [name, attr] of Object.entries(geom.attributes)) {
+      const a = attr as THREE.BufferAttribute;
+      const itemSize = a.itemSize;
+      const out = new Float32Array(tris.length * 3 * itemSize);
+      let w = 0;
+      for (const t of tris) {
+        for (let k = 0; k < 3; k++) {
+          const vi = index ? index.getX(t * 3 + k) : t * 3 + k;
+          for (let c = 0; c < itemSize; c++) out[w++] = a.getComponent(vi, c) as number;
+        }
+      }
+      g.setAttribute(name, new THREE.BufferAttribute(out, itemSize));
+    }
+    return g;
+  };
+  return { left: build(leftTris), right: build(rightTris) };
+}
+
 interface FacePose {
   open: number;
   wide: number;
@@ -89,9 +133,24 @@ export class IpAvatar {
   private headRest: THREE.Quaternion | null = null;
   private armNodeL: THREE.Object3D | null = null;
   private armNodeR: THREE.Object3D | null = null;
+  /**
+   * Shoulder-bone rotation (radians) that brings the source rig's arms from
+   * its bind pose down to "hanging". The old GLB shipped arms outstretched
+   * (needs ~1.6); the bee glTF already models them hanging (needs 0).
+   */
+  private armHangZ = 1.6;
+  /** True once the shared arm mesh has been split into independent L/R pivots. */
+  private armSplit = false;
+  /**
+   * True when the rig hangs both arms under one shared node (bee glTF): the
+   * shoulder/elbow bone channels were calibrated for the old rig, so their
+   * gain is dropped to a subtle sway to keep the arms on sane trajectories.
+   */
+  private armBoneGain = 1;
   private wingNode: THREE.Object3D | null = null;
   private wingPivotL: THREE.Object3D | null = null;
   private wingPivotR: THREE.Object3D | null = null;
+  private wingPivotSingle: THREE.Object3D | null = null;
   private readonly wingParentQuat = new THREE.Quaternion();
   private readonly wingParentQuatInv = new THREE.Quaternion();
   private readonly armRestL = new THREE.Quaternion();
@@ -189,11 +248,21 @@ export class IpAvatar {
     );
 
     const model = gltf.scene;
-    model.scale.setScalar(0.01);
+    // Normalise any source unit to a consistent on-screen height (older GLBs
+    // shipped centimetre units; newer glTF exports may already be in metres).
+    const rawBox = new THREE.Box3().setFromObject(model);
+    const rawHeight = Math.max(1e-6, rawBox.max.y - rawBox.min.y);
+    model.scale.setScalar(1.4 / rawHeight);
     this.portraitRoot.add(model);
     const modelBox = new THREE.Box3().setFromObject(model);
     const modelCenter = modelBox.getCenter(new THREE.Vector3());
     model.position.sub(modelCenter);
+
+    // Name lookup that tolerates GLTFLoader sanitisation ("空白.1-Oc光泽1.1"
+    // becomes "空白1-Oc光泽11") and per-node dedup suffixes ("..._1"): a name
+    // matches when it equals the base or starts with base + "_".
+    const matchesName = (name: string, base: string): boolean =>
+      name === base || name.startsWith(`${base}_`);
 
     model.traverse((object) => {
       if (object.name === HEAD_BONE_NAME) {
@@ -205,7 +274,7 @@ export class IpAvatar {
       }
       if (object instanceof THREE.Mesh) {
         object.frustumCulled = false;
-        if (object.name === FACE_MESH_NAME) {
+        if (matchesName(object.name, FACE_MESH_NAME)) {
           object.material = new THREE.MeshStandardMaterial({
             color: 0x05070c,
             roughness: 0.35,
@@ -216,14 +285,19 @@ export class IpAvatar {
           });
         } else {
           const materials = Array.isArray(object.material) ? object.material : [object.material];
+          // Honey-yellow accent family (torso stripes, wrist/leg rings): some
+          // exports ship them bluish (auto-shift by hue), others ship them
+          // plain white (force by mesh name).
+          const forcedAccent = ACCENT_MESH_PREFIXES.some((p) => matchesName(object.name, p));
           for (const material of materials) {
             if (material instanceof THREE.MeshStandardMaterial) {
               material.metalness = Math.min(material.metalness, 0.2);
               material.roughness = Math.max(material.roughness, 0.6);
               if (material.transparent) material.depthWrite = true;
-              // Brand palette: cyan/lavender accents (torso stripes, wrist/leg
-              // rings, antenna details, ear glow) ship bluish in the GLB —
-              // shift the whole accent family to the reference honey yellow.
+              if (forcedAccent) {
+                material.color.set('#ffc21a');
+                continue;
+              }
               const hsl = { h: 0, s: 0, l: 0 };
               material.color.getHSL(hsl);
               if (hsl.s > 0.2 && hsl.h > 0.42 && hsl.h < 0.78) {
@@ -248,6 +322,17 @@ export class IpAvatar {
       // connected component and split whole components left/right, so the seam
       // runs through the empty gap between the wings instead of cutting across
       // a plate (which would open a visible crack when the halves rotate).
+      // Weld vertices by position first: some exports ship non-indexed
+      // geometry whose triangle corners don't share vertex indices — without
+      // welding, every triangle would look like its own "component".
+      const weldKey = new Map<string, number>();
+      const weld = new Int32Array(posAttr.count);
+      for (let i = 0; i < posAttr.count; i += 1) {
+        const key = `${posAttr.getX(i).toFixed(5)},${posAttr.getY(i).toFixed(5)},${posAttr.getZ(i).toFixed(5)}`;
+        let id = weldKey.get(key);
+        if (id === undefined) { id = i; weldKey.set(key, id); }
+        weld[i] = id;
+      }
       const uf = new Int32Array(posAttr.count);
       for (let i = 0; i < posAttr.count; i++) uf[i] = i;
       const find = (a: number): number => {
@@ -255,9 +340,9 @@ export class IpAvatar {
         return a;
       };
       for (let t = 0; t < triCount; t++) {
-        const i0 = index ? index.getX(t * 3) : t * 3;
-        const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
-        const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+        const i0 = weld[index ? index.getX(t * 3) : t * 3];
+        const i1 = weld[index ? index.getX(t * 3 + 1) : t * 3 + 1];
+        const i2 = weld[index ? index.getX(t * 3 + 2) : t * 3 + 2];
         const ri = find(i0);
         uf[find(i1)] = ri;
         uf[find(i2)] = ri;
@@ -279,7 +364,7 @@ export class IpAvatar {
         va.fromBufferAttribute(posAttr, i0).applyMatrix4(src.matrixWorld);
         vb.fromBufferAttribute(posAttr, i1).applyMatrix4(src.matrixWorld);
         vc.fromBufferAttribute(posAttr, i2).applyMatrix4(src.matrixWorld);
-        const root = find(i0);
+        const root = find(weld[i0]);
         const cx = (va.x + vb.x + vc.x) / 3;
         const cz = (va.z + vb.z + vc.z) / 3;
         compSumX.set(root, (compSumX.get(root) ?? 0) + cx);
@@ -290,12 +375,27 @@ export class IpAvatar {
         compMinZ.set(root, Math.min(compMinZ.get(root) ?? Infinity, cz));
         compMaxZ.set(root, Math.max(compMaxZ.get(root) ?? -Infinity, cz));
       }
-      // The two largest components are the wing plates. Any smaller component
-      // (e.g. a strip near the spine) goes to whichever plate's bounds contain
-      // its centre — centroid sign alone can rip it off the plate it belongs to.
-      const ranked = [...compCount.entries()].sort((a, b) => b[1] - a[1]);
-      const mainLRoot = (ranked.find(([r]) => (compSumX.get(r)! / compCount.get(r)!) < 0) ?? ranked[0])[0];
-      const mainRRoot = (ranked.find(([r]) => r !== mainLRoot) ?? ranked[0])[0];
+      // If the two plates are stacked on top of each other (some exports fold
+      // both wings into one overlapping centre fan) or a plate bridges the
+      // spine, a left/right split would cut or counter-rotate through plates —
+      // keep the wing whole and flap it about a single horizontal axis so both
+      // tips move in phase without any seam.
+      const tintWing = (mesh: THREE.Mesh): void => {
+        const mats = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((m) => m.clone());
+        mesh.material = Array.isArray(mesh.material) ? mats : mats[0];
+        for (const m of mats) {
+          if (m instanceof THREE.MeshStandardMaterial) {
+            m.color.set('#ffd75e');
+            m.side = THREE.DoubleSide;
+          }
+        }
+      };
+      // The two largest components are the wing plates. Order them by centroid
+      // x (most negative = left) — never assume a negative centroid exists.
+      const byCx = [...compCount.entries()]
+        .sort((a, b) => (compSumX.get(a[0])! / a[1]) - (compSumX.get(b[0])! / b[1]));
+      const mainLRoot = byCx[0][0];
+      const mainRRoot = byCx[1]?.[0] ?? byCx[0][0];
       const plateL = {
         minX: compMinX.get(mainLRoot)!, maxX: compMaxX.get(mainLRoot)!,
         minZ: compMinZ.get(mainLRoot)!, maxZ: compMaxZ.get(mainLRoot)!,
@@ -304,13 +404,36 @@ export class IpAvatar {
         minX: compMinX.get(mainRRoot)!, maxX: compMaxX.get(mainRRoot)!,
         minZ: compMinZ.get(mainRRoot)!, maxZ: compMaxZ.get(mainRRoot)!,
       };
+      const plateOverlap = Math.min(plateL.maxX, plateR.maxX) - Math.max(plateL.minX, plateR.minX);
+      const plateSpan = Math.max(plateL.maxX, plateR.maxX) - Math.min(plateL.minX, plateR.minX);
+      const hasBridge = [...compCount.entries()].some(([r, n]) =>
+        n > 16 && compMinX.get(r)! < 0 && compMaxX.get(r)! > 0);
+      const stacked = plateSpan > 0 && plateOverlap / plateSpan > 0.4;
+      const keepWhole = hasBridge || stacked;
+      if (keepWhole) {
+        src.name = '翅膀-左';
+        tintWing(src);
+        const wholeBox = new THREE.Box3().setFromObject(src);
+        const singlePivot = new THREE.Object3D();
+        src.parent!.add(singlePivot);
+        src.parent!.updateWorldMatrix(true, false);
+        singlePivot.position.set(
+          0,
+          wholeBox.max.y,
+          wholeBox.min.z + (wholeBox.max.z - wholeBox.min.z) * 0.2,
+        );
+        src.parent!.worldToLocal(singlePivot.position);
+        singlePivot.attach(src);
+        this.wingPivotSingle = singlePivot;
+      } else {
+      // Split path: assign every component to the plate it belongs to.
       const PAD = 0.03;
       const inside = (x: number, z: number, b: typeof plateL): boolean =>
         x >= b.minX - PAD && x <= b.maxX + PAD && z >= b.minZ - PAD && z <= b.maxZ + PAD;
       const leftTris: number[] = [];
       const rightTris: number[] = [];
       for (let t = 0; t < triCount; t++) {
-        const root = find(index ? index.getX(t * 3) : t * 3);
+        const root = find(weld[index ? index.getX(t * 3) : t * 3]);
         if (root === mainLRoot) { leftTris.push(t); continue; }
         if (root === mainRRoot) { rightTris.push(t); continue; }
         const cx = compSumX.get(root)! / compCount.get(root)!;
@@ -325,15 +448,19 @@ export class IpAvatar {
         const g = new THREE.BufferGeometry();
         for (const [name, attr] of Object.entries(srcGeom.attributes)) {
           const a = attr as THREE.BufferAttribute;
-          const out = new Float32Array(tris.length * 3 * a.itemSize);
+          const itemSize = a.itemSize;
+          const out = new Float32Array(tris.length * 3 * itemSize);
           let w = 0;
           for (const t of tris) {
             for (let k = 0; k < 3; k++) {
               const vi = index ? index.getX(t * 3 + k) : t * 3 + k;
-              for (let c = 0; c < a.itemSize; c++) out[w++] = a.array[vi * a.itemSize + c] as number;
+              // Read through the component getters: they transparently handle
+              // normalized/interleaved storage, which raw array indexing does
+              // not (and corrupted data explodes the wing into spikes).
+              for (let c = 0; c < itemSize; c++) out[w++] = a.getComponent(vi, c) as number;
             }
           }
-          g.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize));
+          g.setAttribute(name, new THREE.BufferAttribute(out, itemSize));
         }
         return g;
       };
@@ -352,7 +479,10 @@ export class IpAvatar {
       src.material = Array.isArray(src.material) ? matsL : matsL[0];
       halfR.material = Array.isArray(halfR.material) ? matsR : matsR[0];
       for (const m of [...matsL, ...matsR]) {
-        if (m instanceof THREE.MeshStandardMaterial) m.color.set('#ffd75e');
+        if (m instanceof THREE.MeshStandardMaterial) {
+          m.color.set('#ffd75e');
+          m.side = THREE.DoubleSide;
+        }
       }
 
       // Each wing hinges on a vertical axis through the middle of its own
@@ -387,51 +517,99 @@ export class IpAvatar {
       };
       this.wingPivotL = makePivot(src);
       this.wingPivotR = makePivot(halfR);
+      }
     }
 
-    const partMeshNames: Record<CustomizePart, string[]> = {
-      head: ['空白1-Oc光泽11', '空白1-Oc光泽1002', '空白1-Oc光泽61'],
-      antennae: ['空白1-Oc光泽6', '空白1-Oc光泽1003'],
-      ears: [],
-      body: [],
-      legs: [],
-      arms: [],
+    // Customisable parts resolved by prefix (tolerant of loader-sanitised
+    // names and dedup suffixes); a mesh joins a part when its name matches
+    // any of the part's prefixes.
+    const partPrefixes: Record<CustomizePart, string[]> = {
+      head: ['空白1-Oc光泽11', '空白1-Oc光泽61'],
+      antennae: ['空白1-Oc光泽6'],
+      ears: ['圆柱体-Oc光泽6', '圆柱体-Oc漫射1'],
+      body: ['球体-Oc光泽'],
+      legs: ['圆柱体-Oc光泽11'],
+      arms: ['扫描-Oc光泽'],
       wings: ['翅膀-左', '翅膀-右'],
     };
-    const partRoots: Partial<Record<CustomizePart, string[]>> = {
-      ears: ['圆柱体'],
-      legs: ['圆柱体-Oc光泽11', '圆柱体-Oc光泽1003'],
-      body: ['细分曲面003'],
-      arms: ['扫描001', '扫描'],
+    const allPartMeshes: Record<CustomizePart, THREE.Mesh[]> = {
+      head: [], antennae: [], ears: [], body: [], legs: [], arms: [], wings: [],
     };
-    for (const [part, roots] of Object.entries(partRoots) as [CustomizePart, string[]][]) {
-      for (const rootName of roots) {
-        const root = model.getObjectByName(rootName);
-        root?.traverse((object) => {
-          if (object instanceof THREE.Mesh) partMeshNames[part].push(object.name);
-        });
+    model.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      for (const part of Object.keys(partPrefixes) as CustomizePart[]) {
+        if (partPrefixes[part].some((p) => matchesName(object.name, p))) {
+          allPartMeshes[part].push(object);
+        }
       }
-    }
-    for (const [part, names] of Object.entries(partMeshNames) as [CustomizePart, string[]][]) {
-      const meshes = names
-        .map((name) => model.getObjectByName(name))
-        .filter((object): object is THREE.Mesh => object instanceof THREE.Mesh);
-      this.partMeshes.set(part, meshes);
+    });
+    for (const part of Object.keys(allPartMeshes) as CustomizePart[]) {
+      this.partMeshes.set(part, allPartMeshes[part]);
     }
 
-    const armGroups = ['空白', '空白003']
-      .map((name) => model.getObjectByName(name))
-      .filter((object): object is THREE.Object3D => Boolean(object));
-    const worldPos = new THREE.Vector3();
-    for (const group of armGroups) {
-      group.getWorldPosition(worldPos);
-      if (worldPos.x > 0) {
-        this.armNodeL = group;
-        this.armRestL.copy(group.quaternion);
-      } else {
-        this.armNodeR = group;
-        this.armRestR.copy(group.quaternion);
+    // Arm swing pivots: split the shared arm mesh into independent left/right
+    // arms, each hinged at its own shoulder — this restores true one-armed
+    // gestures (e.g. a real wave) that a single shared node cannot express.
+    const armGroup = model.getObjectByName('扫描');
+    if (armGroup) {
+      const armMeshes: THREE.Mesh[] = [];
+      armGroup.traverse((object) => {
+        if (object instanceof THREE.Mesh) armMeshes.push(object);
+      });
+      const leftMeshes: THREE.Mesh[] = [];
+      const rightMeshes: THREE.Mesh[] = [];
+      for (const mesh of armMeshes) {
+        const { left, right } = splitGeometryByWorldX(mesh);
+        const parent = mesh.parent!;
+        const meshL = new THREE.Mesh(left, mesh.material);
+        const meshR = new THREE.Mesh(right, mesh.material);
+        meshL.name = `${mesh.name}-左`;
+        meshR.name = `${mesh.name}-右`;
+        meshL.frustumCulled = meshR.frustumCulled = false;
+        parent.add(meshL, meshR);
+        parent.remove(mesh);
+        leftMeshes.push(meshL);
+        rightMeshes.push(meshR);
       }
+      model.updateMatrixWorld(true);
+      // Each arm hinges at its shoulder: vertical-ish axis through the
+      // inner-top corner of that arm's bounds, in world axes.
+      const makeArmPivot = (meshes: THREE.Mesh[], side: -1 | 1): THREE.Object3D => {
+        const box = new THREE.Box3();
+        for (const m of meshes) box.expandByObject(m);
+        const innerX = side < 0 ? box.max.x : box.min.x;
+        const width = box.max.x - box.min.x;
+        let zSum = 0;
+        let zCount = 0;
+        for (const m of meshes) {
+          m.updateWorldMatrix(true, false);
+          const pa = m.geometry.getAttribute('position');
+          const e = m.matrixWorld.elements;
+          for (let i = 0; i < pa.count; i++) {
+            const y = e[1] * pa.getX(i) + e[5] * pa.getY(i) + e[9] * pa.getZ(i) + e[13];
+            if (box.max.y - y <= width * 0.35) {
+              zSum += e[2] * pa.getX(i) + e[6] * pa.getY(i) + e[10] * pa.getZ(i) + e[14];
+              zCount++;
+            }
+          }
+        }
+        const zRoot = zCount > 0 ? zSum / zCount : (box.min.z + box.max.z) / 2;
+        const pivot = new THREE.Object3D();
+        meshes[0].parent!.add(pivot);
+        meshes[0].parent!.updateWorldMatrix(true, false);
+        pivot.position.set(innerX, box.max.y, zRoot);
+        meshes[0].parent!.worldToLocal(pivot.position);
+        for (const m of meshes) pivot.attach(m);
+        return pivot;
+      };
+      this.armNodeL = makeArmPivot(leftMeshes, -1);
+      this.armNodeR = makeArmPivot(rightMeshes, 1);
+      this.armRestL.copy(this.armNodeL.quaternion);
+      this.armRestR.copy(this.armNodeR.quaternion);
+      this.armSplit = true;
+      // The rig's arms are already modelled hanging — no bind-pose correction.
+      this.armHangZ = 0;
+      this.armBoneGain = 0;
     }
 
     for (const key of Object.keys(LIMB_BONES) as LimbKey[]) {
@@ -634,6 +812,7 @@ export class IpAvatar {
     this.speechEnergy = THREE.MathUtils.lerp(
       this.speechEnergy, energyTarget, 1 - Math.exp(-deltaSeconds * 8));
     const gesture = this.performanceFrame?.diagnostics.actionGesture;
+    const emphasis = gesture === 'emphasis' ? 1 : 0;
     const surprise = gesture === 'surprise' ? 1 : 0;
     const gestureWave = gesture === 'wave' ? 1 : 0;
     const excited = gesture === 'smile' || surprise || gestureWave ? 1 : 0;
@@ -654,17 +833,46 @@ export class IpAvatar {
     const waveShake = wave * Math.sin(elapsed * 7.2) * 0.25 * still;
 
     const damping = 1 - Math.exp(-deltaSeconds * 6);
-    this.armCurL.x = THREE.MathUtils.lerp(this.armCurL.x, swing, damping);
-    this.armCurL.z = THREE.MathUtils.lerp(
-      this.armCurL.z, breathe - outward - 0.95 * surprise - 0.05 * concern, damping);
-    this.armCurR.x = THREE.MathUtils.lerp(
-      this.armCurR.x, swingAlt + 0.35 * wave, damping);
-    this.armCurR.z = THREE.MathUtils.lerp(
-      this.armCurR.z,
-      -breathe - outward - 0.95 * surprise - 0.4 * curious - 0.05 * concern
-        - wave * 0.85 + waveShake,
-      damping);
-
+    if (this.armSplit) {
+      // Independent shoulder pivots in world axes: for the left arm (−x side)
+      // a NEGATIVE z angle raises it outward, for the right arm POSITIVE.
+      const waveShake = Math.sin(elapsed * 7.2) * 0.25 * still;
+      this.armCurL.x = THREE.MathUtils.lerp(this.armCurL.x, swing * 0.6, damping);
+      this.armCurL.y = THREE.MathUtils.lerp(
+        this.armCurL.y, 0.3 * emphasis + 0.85 * surprise, damping);
+      this.armCurL.z = THREE.MathUtils.lerp(
+        this.armCurL.z, breathe * 0.4 - 0.9 * surprise - 0.1 * concern, damping);
+      this.armCurR.x = THREE.MathUtils.lerp(
+        this.armCurR.x, swingAlt * 0.6 + 0.35 * wave, damping);
+      this.armCurR.y = THREE.MathUtils.lerp(
+        this.armCurR.y, -0.3 * emphasis - 0.85 * surprise, damping);
+      this.armCurR.z = THREE.MathUtils.lerp(
+        this.armCurR.z,
+        -breathe * 0.4 + 0.9 * surprise + 0.5 * curious + 0.1 * concern
+          + wave * (0.85 - waveShake),
+        damping);
+    } else if (this.armNodeL && !this.armNodeR) {
+      // Single shared arm group: any z rotation swings one arm INTO the torso
+      // and the other OUT (anti-symmetric) — so z is hard-zeroed here and all
+      // expression moves through the x axis. The group's origin sits between
+      // the arms, so keep the amplitude small: a big swing pries the shoulders
+      // off the body. Positive x swings the arms forward.
+      const wavePump = wave * (0.18 + Math.sin(elapsed * 7.2) * 0.08) * still;
+      this.armCurL.x = THREE.MathUtils.lerp(
+        this.armCurL.x, swing * 0.7 + wavePump, damping);
+      this.armCurL.z = THREE.MathUtils.lerp(this.armCurL.z, 0, damping);
+    } else {
+      this.armCurL.x = THREE.MathUtils.lerp(this.armCurL.x, swing, damping);
+      this.armCurL.z = THREE.MathUtils.lerp(
+        this.armCurL.z, breathe - outward - 0.95 * surprise - 0.05 * concern, damping);
+      this.armCurR.x = THREE.MathUtils.lerp(
+        this.armCurR.x, swingAlt + 0.35 * wave, damping);
+      this.armCurR.z = THREE.MathUtils.lerp(
+        this.armCurR.z,
+        -breathe - outward - 0.95 * surprise - 0.4 * curious - 0.05 * concern
+          - wave * 0.85 + waveShake,
+        damping);
+    }
     if (this.armNodeL) {
       this.armEuler.set(this.armCurL.x, 0, this.armCurL.z);
       this.workQuat.setFromEuler(this.armEuler);
@@ -675,7 +883,19 @@ export class IpAvatar {
       this.workQuat.setFromEuler(this.armEuler);
       this.armNodeR.quaternion.copy(this.armRestR).multiply(this.workQuat);
     }
-    if (this.wingPivotL && this.wingPivotR) {
+    if (this.wingPivotSingle) {
+      const flutter = Math.sin(elapsed * 6.2) * (0.06 + 0.14 * this.speechEnergy + 0.2 * excited) * still;
+      const wingParent = this.wingPivotSingle.parent;
+      if (wingParent) {
+        wingParent.updateWorldMatrix(true, false);
+        wingParent.getWorldQuaternion(this.wingParentQuat);
+        this.wingParentQuatInv.copy(this.wingParentQuat).invert();
+        this.armEuler.set(flutter, 0, 0);
+        this.workQuat.setFromEuler(this.armEuler);
+        this.wingPivotSingle.quaternion
+          .copy(this.wingParentQuatInv).multiply(this.workQuat).multiply(this.wingParentQuat);
+      }
+    } else if (this.wingPivotL && this.wingPivotR) {
       const flutter = Math.sin(elapsed * 6.2) * (0.06 + 0.14 * this.speechEnergy + 0.2 * excited) * still;
       const wingParent = this.wingPivotL.parent;
       if (wingParent) {
@@ -708,21 +928,22 @@ export class IpAvatar {
     const swing = Math.sin(elapsed * 5.2) * 0.14 * this.speechEnergy * still;
     const swingAlt = Math.sin(elapsed * 5.2 + Math.PI) * 0.14 * this.speechEnergy * still;
 
+    const bg = this.armBoneGain;
     const targets: Record<LimbKey, [number, number, number]> = {
       shoulderL: [
-        breathe * 0.3 + swing * 0.6,
-        0.35 * emphasis + 0.85 * surprise,
-        -1.6 * (1 - surprise * 0.8) + breathe + swing * 0.3 - 0.15 * concern,
+        (breathe * 0.3 + swing * 0.6) * bg,
+        (0.35 * emphasis + 0.85 * surprise) * bg,
+        -this.armHangZ * (1 - surprise * 0.8) + (breathe + swing * 0.3 - 0.15 * concern) * bg,
       ],
       shoulderR: [
-        breatheAlt * 0.3 + swingAlt * 0.6,
-        -0.35 * emphasis - 1.0 * wave - 0.85 * surprise - 0.4 * curious,
-        1.6 * (1 - wave) * (1 - surprise * 0.8) + breatheAlt + swingAlt * 0.3 + 0.15 * concern,
+        (breatheAlt * 0.3 + swingAlt * 0.6) * bg,
+        (-0.35 * emphasis - 1.0 * wave - 0.85 * surprise - 0.4 * curious) * bg,
+        this.armHangZ * (1 - wave) * (1 - surprise * 0.8) + (breatheAlt + swingAlt * 0.3 + 0.15 * concern) * bg,
       ],
-      elbowL: [0, 0.15 * emphasis + 0.3 * surprise, 0],
+      elbowL: [0, (0.15 * emphasis + 0.3 * surprise) * bg, 0],
       elbowR: [
         0,
-        -0.15 * emphasis - (0.7 + Math.sin(elapsed * 7.2) * 0.35) * wave - 0.3 * surprise,
+        (-0.15 * emphasis - (0.7 + Math.sin(elapsed * 7.2) * 0.35) * wave - 0.3 * surprise) * bg,
         0,
       ],
     };
