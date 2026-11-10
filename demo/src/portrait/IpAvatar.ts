@@ -156,6 +156,10 @@ export class IpAvatar {
   private readonly armCurL = new THREE.Euler();
   private readonly armCurR = new THREE.Euler();
   private speechEnergy = 0;
+  /** Smoothed playback audio level (0..1) driving the face's rhythm bars. */
+  private audioLevel = 0;
+  private lastAudioLevel = 0;
+  private lastElapsed = 0;
   private readonly limbs = new Map<LimbKey, LimbDriver>();
   private speechWeights: Readonly<SpeechRigWeights> | undefined;
   private performanceFrame: Readonly<ExpressivePerformanceFrame> | undefined;
@@ -182,8 +186,8 @@ export class IpAvatar {
   };
   private readonly partMeshes = new Map<CustomizePart, THREE.Mesh[]>();
   private readonly baseColors = new Map<THREE.Material, THREE.Color>();
-  private faceGlowTop = '#fff8d0';
-  private faceGlowBottom = '#fff0a8';
+  private faceGlowTop = '#f8f1a6';
+  private faceGlowBottom = '#f5ef95';
   private readonly stickers: Record<FaceSticker, boolean> = { blush: false, sparkle: false };
   private faceDirty = true;
   private lastFaceDrawMs = -Infinity;
@@ -271,11 +275,11 @@ export class IpAvatar {
         if (matchesName(object.name, FACE_MESH_NAME)) {
           object.material = new THREE.MeshStandardMaterial({
             color: 0x05070c,
-            roughness: 0.35,
+            roughness: 0,
             metalness: 0.0,
             emissive: 0xffffff,
             emissiveMap: this.faceTexture,
-            emissiveIntensity: 1.6,
+            emissiveIntensity: 1,
           });
         } else {
           const materials = Array.isArray(object.material) ? object.material : [object.material];
@@ -626,6 +630,14 @@ export class IpAvatar {
     this.speechWeights = weights;
   }
 
+  /** Feed the live playback audio level (e.g. RMS) each frame. */
+  setAudioLevel(level: number): void {
+    const target = clamp(level);
+    // Fast attack, slower release — bars jump with the voice and settle softly.
+    const rate = target > this.audioLevel ? 0.55 : 0.25;
+    this.audioLevel += (target - this.audioLevel) * rate;
+  }
+
   setExpressivePerformance(frame: Readonly<ExpressivePerformanceFrame>): void {
     this.performanceFrame = frame;
   }
@@ -668,6 +680,7 @@ export class IpAvatar {
   update(deltaSeconds: number, elapsedSeconds: number): void {
     const elapsed = this.pauseForScreenshot ? this.deterministicElapsed : elapsedSeconds;
     if (!this.pauseForScreenshot) this.deterministicElapsed = elapsedSeconds;
+    this.lastElapsed = elapsed;
     this.resize(false);
     this.controls.enabled = !this.pauseForScreenshot;
     this.controls.update(deltaSeconds);
@@ -677,6 +690,10 @@ export class IpAvatar {
       this.performanceFrame,
     );
     this.applyPose(pose, deltaSeconds, elapsed);
+    // The rhythm bars animate with the audio level, so the face must repaint
+    // for a few frames after the level drops to erase them.
+    if (this.audioLevel > 0.015 || this.lastAudioLevel > 0.015) this.faceDirty = true;
+    this.lastAudioLevel = this.audioLevel;
     if (this.faceDirty) {
       const now = performance.now();
       if (this.pauseForScreenshot || now - this.lastFaceDrawMs >= 33) {
@@ -1059,9 +1076,9 @@ export class IpAvatar {
       bg.height = H;
       const bgCtx = bg.getContext('2d')!;
       const screenGradient = bgCtx.createLinearGradient(0, 0, 0, H);
-      screenGradient.addColorStop(0, '#ff9d0d');
-      screenGradient.addColorStop(0.55, '#ffc021');
-      screenGradient.addColorStop(1, '#ffd44f');
+      screenGradient.addColorStop(0, '#fdb240');
+      screenGradient.addColorStop(0.5, '#fad14b');
+      screenGradient.addColorStop(1, '#f4e768');
       bgCtx.fillStyle = screenGradient;
       bgCtx.fillRect(0, 0, W, H);
       this.faceBgCanvas = bg;
@@ -1099,16 +1116,6 @@ export class IpAvatar {
     const eyeW = W * 0.33;
     const eyeH = H * 0.39 * Math.max(0.04, pose.eyeOpen);
 
-    // Soft halo behind the eyes replaces per-rect shadowBlur (far cheaper).
-    ctx.globalAlpha = 0.32;
-    for (const side of [-1, 1]) {
-      const hx = cx + side * eyeDX + gazeOffsetX;
-      const halo = ctx.createRadialGradient(hx, eyeY, 0, hx, eyeY, eyeW * 0.85);
-      halo.addColorStop(0, glow);
-      halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = halo;
-      ctx.fillRect(hx - eyeW, eyeY - eyeW, eyeW * 2, eyeW * 2);
-    }
     ctx.globalAlpha = 1;
     ctx.fillStyle = gradient;
     ctx.strokeStyle = gradient;
@@ -1129,6 +1136,31 @@ export class IpAvatar {
             pitchY * 0.8,
           );
         }
+      }
+    }
+
+    // Audio rhythm strip along the bottom edge of the face — with no mouth,
+    // the voice shows as a row of pulsing equalizer bars instead.
+    const level = this.audioLevel;
+    if (level > 0.015) {
+      const bars = 11;
+      const barW = W * 0.034;
+      const gap = W * 0.013;
+      const baseY = H * 0.78;
+      const maxH = H * 0.17;
+      const t = this.lastElapsed;
+      const mid = (bars - 1) / 2;
+      const totalW = bars * barW + (bars - 1) * gap;
+      ctx.fillStyle = gradient;
+      for (let i = 0; i < bars; i += 1) {
+        const wobble = Math.abs(Math.sin(t * (5.6 + (i % 3) * 1.3) + i * 2.17));
+        const centerWeight = 1 - (Math.abs(i - mid) / (mid + 0.5)) * 0.45;
+        const h = level * maxH * centerWeight * (0.3 + 0.7 * wobble);
+        if (h < 2.5) continue;
+        const x = cx - totalW / 2 + i * (barW + gap);
+        ctx.beginPath();
+        ctx.roundRect(x, baseY - h, barW, h, barW * 0.5);
+        ctx.fill();
       }
     }
 

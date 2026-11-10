@@ -1605,6 +1605,8 @@ export class PortraitApp {
     const weights = previewWeights(this.previewState) ?? speechWeights;
     this.portrait.setSpeechWeights(speechWeights);
     this.portrait.setExpressivePerformance(this.expressiveFrame);
+    // Live playback amplitude drives the face's audio rhythm bars.
+    this.portrait.setAudioLevel(this.speech.playbackOutputRms() * 7);
     this.portrait.update(delta, elapsed);
     this.portrait.render();
     this.updateArticulationUi(weights);
