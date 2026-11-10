@@ -108,6 +108,14 @@ function splitGeometryByWorldX(mesh: THREE.Mesh): { left: THREE.BufferGeometry; 
   return { left: build(leftTris), right: build(rightTris) };
 }
 
+/** Honey-yellow wings read as thin translucent plates (like the reference). */
+function makeWingTranslucent(material: THREE.MeshStandardMaterial): void {
+  material.transparent = true;
+  material.opacity = 0.55;
+  material.depthWrite = false;
+  material.roughness = 0.4;
+}
+
 interface FacePose {
   smile: number;
   eyeOpen: number;
@@ -385,6 +393,7 @@ export class IpAvatar {
           if (m instanceof THREE.MeshStandardMaterial) {
             m.color.set('#ffd75e');
             m.side = THREE.DoubleSide;
+            makeWingTranslucent(m);
           }
         }
       };
@@ -480,6 +489,7 @@ export class IpAvatar {
         if (m instanceof THREE.MeshStandardMaterial) {
           m.color.set('#ffd75e');
           m.side = THREE.DoubleSide;
+          makeWingTranslucent(m);
         }
       }
 
